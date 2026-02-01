@@ -1,10 +1,10 @@
 import { z } from 'zod'
 import { eq } from 'drizzle-orm'
-import { db } from '~/server/database'
-import { parents, children } from '~/server/database/schema'
-import { verifyPassword } from '~/server/utils/password'
-import { setSession } from '~/server/plugins/session'
-import type { SessionUser } from '~/server/utils/auth'
+import { db } from '../../database'
+import { parents, children } from '../../database/schema'
+import { verifyPassword } from '../../utils/password'
+import { setSession } from '../../plugins/session'
+import type { SessionUser } from '../../utils/auth'
 
 const loginSchema = z.object({
   username: z.string().min(1),

@@ -1,10 +1,10 @@
 import { z } from 'zod'
 import { eq } from 'drizzle-orm'
-import { db } from '~/server/database'
-import { parents } from '~/server/database/schema'
-import { hashPassword } from '~/server/utils/password'
-import { setSession } from '~/server/plugins/session'
-import type { SessionUser } from '~/server/utils/auth'
+import { db } from '../../database'
+import { parents } from '../../database/schema'
+import { hashPassword } from '../../utils/password'
+import { setSession } from '../../plugins/session'
+import type { SessionUser } from '../../utils/auth'
 
 const registerSchema = z.object({
   invitationCode: z.string().min(1),

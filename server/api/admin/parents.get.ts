@@ -1,7 +1,7 @@
 import { count, eq } from 'drizzle-orm'
-import { db } from '~/server/database'
-import { parents, children } from '~/server/database/schema'
-import { requireRole } from '~/server/utils/auth'
+import { db } from '../../database'
+import { parents, children } from '../../database/schema'
+import { requireRole } from '../../utils/auth'
 
 export default defineEventHandler(async (event) => {
   requireRole(event, ['superadmin'])

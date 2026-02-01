@@ -1,9 +1,9 @@
 import { z } from 'zod'
 import { eq } from 'drizzle-orm'
-import { db } from '~/server/database'
-import { children } from '~/server/database/schema'
-import { hashPassword } from '~/server/utils/password'
-import { requireRole } from '~/server/utils/auth'
+import { db } from '../../database'
+import { children } from '../../database/schema'
+import { hashPassword } from '../../utils/password'
+import { requireRole } from '../../utils/auth'
 
 const createChildSchema = z.object({
   username: z.string().min(3).max(50),

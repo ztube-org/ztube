@@ -1,10 +1,10 @@
 import { z } from 'zod'
 import { eq, and } from 'drizzle-orm'
-import { db } from '~/server/database'
-import { children, allowedChannels, allowedPlaylists, allowedVideos } from '~/server/database/schema'
-import { requireRole } from '~/server/utils/auth'
-import { parseYouTubeUrl } from '~/server/utils/youtube'
-import { fetchVideoMetadata, fetchPlaylistMetadata, fetchChannelMetadata } from '~/server/utils/youtube-api'
+import { db } from '../../../database'
+import { children, allowedChannels, allowedPlaylists, allowedVideos } from '../../../database/schema'
+import { requireRole } from '../../../utils/auth'
+import { parseYouTubeUrl } from '../../../utils/youtube'
+import { fetchVideoMetadata, fetchPlaylistMetadata, fetchChannelMetadata } from '../../../utils/youtube-api'
 
 const addContentSchema = z.object({
   childId: z.number(),

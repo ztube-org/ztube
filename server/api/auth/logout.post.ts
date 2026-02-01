@@ -1,4 +1,4 @@
-import { clearSession } from '~/server/plugins/session'
+import { clearSession } from '../../plugins/session'
 
 export default defineEventHandler(async (event) => {
   await clearSession(event)

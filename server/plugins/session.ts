@@ -1,4 +1,4 @@
-import { sealData, unsealData } from 'iron-webcrypto'
+import * as Iron from 'iron-webcrypto'
 import type { H3Event } from 'h3'
 
 const COOKIE_NAME = 'ztube_session'
@@ -19,7 +19,7 @@ export default defineNitroPlugin((nitroApp) => {
 
     if (cookie) {
       try {
-        const data = await unsealData(cookie, { password, ttl: COOKIE_MAX_AGE })
+        const data = await Iron.unseal(globalThis.crypto, cookie, password, Iron.defaults)
         event.context.session = data as Record<string, unknown>
       } catch {
         event.context.session = {}
@@ -34,7 +34,7 @@ export async function setSession(event: H3Event, data: Record<string, unknown>) 
   const config = useRuntimeConfig()
   const password = config.sessionPassword
 
-  const sealed = await sealData(data, { password, ttl: COOKIE_MAX_AGE })
+  const sealed = await Iron.seal(globalThis.crypto, data, password, Iron.defaults)
 
   setCookie(event, COOKIE_NAME, sealed, {
     httpOnly: true,

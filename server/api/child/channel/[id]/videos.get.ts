@@ -1,8 +1,8 @@
 import { eq, and } from 'drizzle-orm'
-import { db } from '~/server/database'
-import { allowedChannels, channelVideos } from '~/server/database/schema'
-import { requireRole } from '~/server/utils/auth'
-import { fetchChannelVideos } from '~/server/utils/youtube-api'
+import { db } from '../../../../database'
+import { allowedChannels, channelVideos } from '../../../../database/schema'
+import { requireRole } from '../../../../utils/auth'
+import { fetchChannelVideos } from '../../../../utils/youtube-api'
 
 const STALE_HOURS = 6
 

@@ -1,7 +1,7 @@
 import { eq, and } from 'drizzle-orm'
-import { db } from '~/server/database'
-import { children, allowedChannels, allowedPlaylists, allowedVideos } from '~/server/database/schema'
-import { requireRole } from '~/server/utils/auth'
+import { db } from '../../../../database'
+import { children, allowedChannels, allowedPlaylists, allowedVideos } from '../../../../database/schema'
+import { requireRole } from '../../../../utils/auth'
 
 export default defineEventHandler(async (event) => {
   const user = requireRole(event, ['parent'])
