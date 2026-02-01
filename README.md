@@ -1,75 +1,71 @@
-# Nuxt Minimal Starter
+# ZTube
 
-Look at the [Nuxt documentation](https://nuxt.com/docs/getting-started/introduction) to learn more.
+A parental control YouTube platform for curating content for children.
 
-## Setup
+## Features
 
-Make sure to install dependencies:
+- Parents manage allowlists of YouTube channels, playlists, and videos
+- Children browse and watch only approved content
+- Clean, distraction-free video player with speed controls
+- Admin panel for account management
 
-```bash
-# npm
-npm install
+## Local Development
 
-# pnpm
-pnpm install
+1. Clone and install:
+   ```bash
+   npm install
+   ```
 
-# yarn
-yarn install
+2. Configure environment:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your values
+   ```
 
-# bun
-bun install
-```
+3. Initialize database:
+   ```bash
+   npm run db:push
+   ```
 
-## Development Server
+4. Start dev server:
+   ```bash
+   npm run dev
+   ```
 
-Start the development server on `http://localhost:3000`:
+5. Open http://localhost:3000
 
-```bash
-# npm
-npm run dev
+## Deployment to Cloudflare
 
-# pnpm
-pnpm dev
+1. Create D1 database:
+   ```bash
+   wrangler d1 create ztube-prod
+   ```
 
-# yarn
-yarn dev
+2. Update `wrangler.toml` with database_id
 
-# bun
-bun run dev
-```
+3. Set secrets:
+   ```bash
+   wrangler secret put SUPERADMIN_PASSWORD
+   wrangler secret put INVITATION_CODE
+   wrangler secret put YOUTUBE_API_KEY
+   wrangler secret put NUXT_SESSION_PASSWORD
+   ```
 
-## Production
+4. Run migrations:
+   ```bash
+   wrangler d1 migrations apply ztube-prod --remote
+   ```
 
-Build the application for production:
+5. Deploy:
+   ```bash
+   npm run build
+   wrangler pages deploy .output/public
+   ```
 
-```bash
-# npm
-npm run build
+## Tech Stack
 
-# pnpm
-pnpm build
-
-# yarn
-yarn build
-
-# bun
-bun run build
-```
-
-Locally preview production build:
-
-```bash
-# npm
-npm run preview
-
-# pnpm
-pnpm preview
-
-# yarn
-yarn preview
-
-# bun
-bun run preview
-```
-
-Check out the [deployment documentation](https://nuxt.com/docs/getting-started/deployment) for more information.
+- Nuxt 3 + Vue 3
+- Cloudflare Pages + Workers + D1
+- Drizzle ORM
+- Nuxt UI + Tailwind CSS
+- YouTube Data API v3
