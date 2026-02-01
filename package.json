@@ -10,7 +10,8 @@
     "postinstall": "nuxt prepare",
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "lint": "oxlint ."
   },
   "dependencies": {
     "@nuxt/ui": "^4.4.0",
