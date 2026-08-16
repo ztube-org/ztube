@@ -41,6 +41,7 @@ async function fixture(identity: Identity, now = new Date('2026-08-16T12:00:00.0
   await d1.exec(await readFile(new URL('../migrations/0003_restricted_watch_time.sql', import.meta.url), 'utf8'))
   await d1.exec(await readFile(new URL('../migrations/0004_active_playback_lease.sql', import.meta.url), 'utf8'))
   await d1.exec(await readFile(new URL('../migrations/0005_content_rules.sql', import.meta.url), 'utf8'))
+  await d1.exec(await readFile(new URL('../migrations/0006_video_content_rules.sql', import.meta.url), 'utf8'))
   d1.sqlite.exec(`
     INSERT INTO parents (id, email) VALUES (1, 'parent@example.com'), (2, 'other@example.com');
     INSERT INTO children (id, parent_id, email) VALUES (10, 1, 'child@example.com'), (20, 2, 'other-child@example.com');

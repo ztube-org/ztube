@@ -49,6 +49,9 @@ const activeTab = ref('channels')
 const addUrl = ref('')
 const addLoading = ref(false)
 const addError = ref('')
+const overrideSource = ref<{ type: 'channel' | 'playlist'; id: number; title: string } | null>(null)
+const overrideVideos = ref<any[]>([])
+const overrideLoading = ref(false)
 
 async function addContent() {
   addError.value = ''
@@ -86,6 +89,30 @@ async function updateRule(id: number, type: string, rule: string) {
   } catch (e: any) {
     alert(e.data?.message || e.message || 'Failed to update Content Rule')
   }
+}
+
+async function showVideoOverrides(type: 'channel' | 'playlist', id: number, title: string) {
+  overrideSource.value = { type, id, title }
+  overrideLoading.value = true
+  try {
+    const result = await apiFetch<any>(`/api/parent/children/${childId}/content/${type}/${id}/videos`)
+    overrideVideos.value = result.videos
+  } finally {
+    overrideLoading.value = false
+  }
+}
+
+function overrideFor(videoId: string) {
+  return data.value?.videoRules?.find((item: any) => item.videoId === videoId)?.contentRule || 'inherit'
+}
+
+async function updateVideoOverride(videoId: string, rule: string) {
+  if (!overrideSource.value) return
+  if (rule === 'inherit') await apiFetch(`/api/parent/children/${childId}/video-rules/${encodeURIComponent(videoId)}`, { method: 'DELETE' })
+  else await apiFetch(`/api/parent/children/${childId}/video-rules/${encodeURIComponent(videoId)}`, {
+    method: 'PUT', body: { rule, sourceType: overrideSource.value.type, sourceId: overrideSource.value.id },
+  })
+  await refresh()
 }
 
 function formatDuration(seconds: number | null): string {
@@ -179,6 +206,7 @@ function formatDuration(seconds: number | null): string {
             <template #footer>
               <div class="flex items-center justify-between gap-2">
                 <USelect :model-value="channel.contentRule" :items="[{ label: 'Restricted', value: 'restricted' }, { label: '不计入普通额度', value: 'exempt' }]" size="xs" @update:model-value="updateRule(channel.id, 'channel', String($event))" />
+                <UButton variant="ghost" size="xs" @click="showVideoOverrides('channel', channel.id, channel.channelTitle)">Video overrides</UButton>
                 <UButton color="red" variant="ghost" size="xs" @click="deleteContent(channel.id, 'channel')">Remove</UButton>
               </div>
             </template>
@@ -198,6 +226,7 @@ function formatDuration(seconds: number | null): string {
             <template #footer>
               <div class="flex items-center justify-between gap-2">
                 <USelect :model-value="playlist.contentRule" :items="[{ label: 'Restricted', value: 'restricted' }, { label: '不计入普通额度', value: 'exempt' }]" size="xs" @update:model-value="updateRule(playlist.id, 'playlist', String($event))" />
+                <UButton variant="ghost" size="xs" @click="showVideoOverrides('playlist', playlist.id, playlist.playlistTitle)">Video overrides</UButton>
                 <UButton color="red" variant="ghost" size="xs" @click="deleteContent(playlist.id, 'playlist')">Remove</UButton>
               </div>
             </template>
@@ -230,5 +259,26 @@ function formatDuration(seconds: number | null): string {
         </div>
       </template>
     </UTabs>
+
+    <UCard v-if="overrideSource" class="mt-8">
+      <template #header>
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="font-semibold">Video-specific Content Rules</h2>
+            <p class="text-sm text-gray-500">{{ overrideSource.title }} · These overrides do not create duplicate video cards.</p>
+          </div>
+          <UButton variant="ghost" @click="overrideSource = null">Close</UButton>
+        </div>
+      </template>
+      <p v-if="overrideLoading">Loading videos…</p>
+      <p v-else-if="!overrideVideos.length" class="text-gray-500">No cached videos yet. Open this content once as the Child to refresh its membership.</p>
+      <div v-else class="divide-y">
+        <div v-for="video in overrideVideos" :key="video.videoId" class="flex items-center gap-3 py-3">
+          <img :src="video.videoThumbnail" class="h-12 w-20 rounded object-cover" />
+          <p class="flex-1 truncate">{{ video.videoTitle }}</p>
+          <USelect :model-value="overrideFor(video.videoId)" :items="[{ label: 'Inherit', value: 'inherit' }, { label: 'Restricted', value: 'restricted' }, { label: '不计入普通额度', value: 'exempt' }]" size="xs" @update:model-value="updateVideoOverride(video.videoId, String($event))" />
+        </div>
+      </div>
+    </UCard>
   </div>
 </template>

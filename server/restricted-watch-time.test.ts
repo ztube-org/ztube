@@ -26,7 +26,7 @@ class IsolatedD1 {
 
 async function fixture() {
   const d1 = new IsolatedD1()
-  for (const migration of ['0001_initial.sql', '0002_child_time_settings.sql', '0003_restricted_watch_time.sql', '0004_active_playback_lease.sql', '0005_content_rules.sql']) {
+  for (const migration of ['0001_initial.sql', '0002_child_time_settings.sql', '0003_restricted_watch_time.sql', '0004_active_playback_lease.sql', '0005_content_rules.sql', '0006_video_content_rules.sql']) {
     await d1.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), 'utf8'))
   }
   d1.sqlite.exec(`

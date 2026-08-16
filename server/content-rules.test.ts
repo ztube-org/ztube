@@ -26,7 +26,7 @@ class IsolatedD1 {
 
 async function fixture() {
   const d1 = new IsolatedD1()
-  for (const migration of ['0001_initial.sql', '0002_child_time_settings.sql', '0003_restricted_watch_time.sql', '0004_active_playback_lease.sql', '0005_content_rules.sql']) {
+  for (const migration of ['0001_initial.sql', '0002_child_time_settings.sql', '0003_restricted_watch_time.sql', '0004_active_playback_lease.sql', '0005_content_rules.sql', '0006_video_content_rules.sql']) {
     await d1.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), 'utf8'))
   }
   d1.sqlite.exec(`
@@ -37,6 +37,19 @@ async function fixture() {
     INSERT INTO allowed_videos (id, child_id, video_id, video_title, is_available) VALUES
       (100, 10, 'lesson', 'Lesson', 1), (101, 10, 'game', 'Game', 1),
       (110, 11, 'lesson', 'Lesson', 1), (200, 20, 'foreign', 'Foreign', 1);
+    INSERT INTO allowed_channels (id, child_id, channel_id, uploads_playlist_id, channel_title, is_available, content_rule)
+      VALUES (300, 10, 'channel-a', 'uploads-a', 'Channel A', 1, 'exempt'),
+             (301, 10, 'channel-b', 'uploads-b', 'Channel B', 1, 'restricted');
+    INSERT INTO allowed_playlists (id, child_id, playlist_id, playlist_title, is_available, content_rule)
+      VALUES (400, 10, 'playlist-a', 'Playlist A', 1, 'exempt'),
+             (401, 10, 'playlist-b', 'Playlist B', 1, 'restricted');
+    INSERT INTO channel_videos (channel_id, video_id, position, video_title, fetched_at) VALUES
+      ('channel-a', 'overlap', 0, 'Overlap', 1786968000), ('channel-b', 'channel-conflict', 0, 'Conflict', 1786968000);
+    INSERT INTO channel_videos (channel_id, video_id, position, video_title, fetched_at) VALUES
+      ('channel-a', 'channel-conflict', 1, 'Conflict', 1786968000);
+    INSERT INTO playlist_videos (playlist_id, video_id, position, video_title, fetched_at) VALUES
+      ('playlist-a', 'overlap', 0, 'Overlap', 1786968000), ('playlist-a', 'playlist-conflict', 1, 'Conflict', 1786968000),
+      ('playlist-b', 'playlist-conflict', 0, 'Conflict', 1786968000);
   `)
   const clock = new Date('2026-08-17T12:00:00.000Z')
   let user: any = { id: 1, email: 'parent@example.com', displayName: null, role: 'parent' }
@@ -55,6 +68,37 @@ test('parent manages per-Child Content Rules with ownership enforced', async () 
   assert.equal((d1.sqlite.prepare('SELECT content_rule FROM allowed_videos WHERE id = 100').get() as any).content_rule, 'exempt')
   assert.equal((d1.sqlite.prepare('SELECT content_rule FROM allowed_videos WHERE id = 110').get() as any).content_rule, 'restricted')
   assert.equal((await request('/api/parent/children/20/content/video/200/rule', 'PUT', { rule: 'exempt' })).status, 404)
+})
+
+test('video overrides are created from trusted cached membership without duplicate standalone content', async () => {
+  const { d1, request } = await fixture()
+  const changed = await request('/api/parent/children/10/video-rules/overlap', 'PUT', { rule: 'restricted', sourceType: 'playlist', sourceId: 400 })
+  assert.equal(changed.status, 200)
+  assert.equal((d1.sqlite.prepare("SELECT count(*) AS count FROM allowed_videos WHERE video_id = 'overlap'").get() as any).count, 0)
+  assert.equal((d1.sqlite.prepare("SELECT content_rule FROM video_content_rules WHERE video_id = 'overlap'").get() as any).content_rule, 'restricted')
+
+  assert.equal((await request('/api/parent/children/10/video-rules/arbitrary', 'PUT', { rule: 'exempt', sourceType: 'playlist', sourceId: 400 })).status, 404)
+  assert.equal((await request('/api/parent/children/10/video-rules/overlap', 'PUT', { rule: 'exempt', sourceType: 'playlist', sourceId: 999 })).status, 404)
+})
+
+test('rule resolution is deterministic by specificity with restricted winning ties', async () => {
+  const { d1, request, asChild } = await fixture()
+  asChild()
+
+  // Playlist specificity beats the exempt channel regardless of the route used to discover the video.
+  d1.sqlite.exec("UPDATE allowed_playlists SET content_rule = 'restricted' WHERE id = 400")
+  for (const routeHint of [{}, { channel: 300 }, { playlist: 400 }, { direct: true }]) {
+    const response = await request('/api/child/playback-authorizations', 'POST', { videoId: 'overlap', ...routeHint })
+    assert.equal(response.status, 200)
+    assert.equal((await response.json() as any).authorization.usageBucket, 'restricted')
+  }
+
+  // Among equally specific memberships, restricted wins independent of database order.
+  assert.equal((await (await request('/api/child/playback-authorizations', 'POST', { videoId: 'channel-conflict' })).json() as any).authorization.usageBucket, 'restricted')
+  assert.equal((await (await request('/api/child/playback-authorizations', 'POST', { videoId: 'playlist-conflict' })).json() as any).authorization.usageBucket, 'restricted')
+
+  d1.sqlite.exec("INSERT INTO video_content_rules (child_id, video_id, content_rule, video_title) VALUES (10, 'overlap', 'exempt', 'Overlap')")
+  assert.equal((await (await request('/api/child/playback-authorizations', 'POST', { videoId: 'overlap' })).json() as any).authorization.usageBucket, 'exempt')
 })
 
 test('allowance-exempt playback uses only the Safety Cap bucket', async () => {

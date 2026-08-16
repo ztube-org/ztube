@@ -127,12 +127,55 @@ export function createApp(dependencies: AppDependencies = {}) {
     const db = drizzle(c.env.DB, { schema })
     const child = await db.query.children.findFirst({ where: and(eq(schema.children.id, childId), eq(schema.children.parentId, user.id!)) })
     if (!child) throw new HTTPException(404, { message: 'Child not found' })
-    const [channels, playlists, videos] = await Promise.all([
+    const [channels, playlists, videos, videoRules] = await Promise.all([
       db.query.allowedChannels.findMany({ where: eq(schema.allowedChannels.childId, childId) }),
       db.query.allowedPlaylists.findMany({ where: eq(schema.allowedPlaylists.childId, childId) }),
       db.query.allowedVideos.findMany({ where: eq(schema.allowedVideos.childId, childId) }),
+      db.query.videoContentRules.findMany({ where: eq(schema.videoContentRules.childId, childId) }),
     ])
-    return c.json({ child: { id: child.id, email: child.email, displayName: child.displayName }, channels, playlists, videos })
+    return c.json({ child: { id: child.id, email: child.email, displayName: child.displayName }, channels, playlists, videos, videoRules })
+  })
+
+  app.get('/api/parent/children/:id/content/:type/:contentId/videos', async c => {
+    const { db, childId } = await ownedChild(c)
+    const type = z.enum(['channel', 'playlist']).parse(c.req.param('type'))
+    const contentId = numericId(c.req.param('contentId'))
+    if (type === 'channel') {
+      const source = await db.query.allowedChannels.findFirst({ where: and(eq(schema.allowedChannels.id, contentId), eq(schema.allowedChannels.childId, childId)) })
+      if (!source) throw new HTTPException(404, { message: 'Approved Content not found' })
+      const videos = await db.query.channelVideos.findMany({ where: eq(schema.channelVideos.channelId, source.channelId), orderBy: (table, { asc }) => [asc(table.position)] })
+      return c.json({ videos })
+    }
+    const source = await db.query.allowedPlaylists.findFirst({ where: and(eq(schema.allowedPlaylists.id, contentId), eq(schema.allowedPlaylists.childId, childId)) })
+    if (!source) throw new HTTPException(404, { message: 'Approved Content not found' })
+    const videos = await db.query.playlistVideos.findMany({ where: eq(schema.playlistVideos.playlistId, source.playlistId), orderBy: (table, { asc }) => [asc(table.position)] })
+    return c.json({ videos })
+  })
+
+  app.put('/api/parent/children/:id/video-rules/:videoId', async c => {
+    const { db, childId } = await ownedChild(c)
+    const videoId = z.string().trim().min(1).max(64).parse(c.req.param('videoId'))
+    const input = z.object({ rule: contentRule, sourceType: z.enum(['channel', 'playlist']), sourceId: z.number().int().positive() }).parse(await c.req.json())
+    const membership = input.sourceType === 'channel'
+      ? await db.select({ videoId: schema.channelVideos.videoId, videoTitle: schema.channelVideos.videoTitle, videoThumbnail: schema.channelVideos.videoThumbnail, duration: schema.channelVideos.duration, channelTitle: schema.channelVideos.channelTitle })
+          .from(schema.allowedChannels).innerJoin(schema.channelVideos, eq(schema.channelVideos.channelId, schema.allowedChannels.channelId))
+          .where(and(eq(schema.allowedChannels.id, input.sourceId), eq(schema.allowedChannels.childId, childId), eq(schema.allowedChannels.isAvailable, true), eq(schema.channelVideos.videoId, videoId))).get()
+      : await db.select({ videoId: schema.playlistVideos.videoId, videoTitle: schema.playlistVideos.videoTitle, videoThumbnail: schema.playlistVideos.videoThumbnail, duration: schema.playlistVideos.duration, channelTitle: schema.playlistVideos.channelTitle })
+          .from(schema.allowedPlaylists).innerJoin(schema.playlistVideos, eq(schema.playlistVideos.playlistId, schema.allowedPlaylists.playlistId))
+          .where(and(eq(schema.allowedPlaylists.id, input.sourceId), eq(schema.allowedPlaylists.childId, childId), eq(schema.allowedPlaylists.isAvailable, true), eq(schema.playlistVideos.videoId, videoId))).get()
+    if (!membership) throw new HTTPException(404, { message: 'Video membership is not available from this Approved Content' })
+    await db.insert(schema.videoContentRules).values({ childId, ...membership, contentRule: input.rule }).onConflictDoUpdate({
+      target: [schema.videoContentRules.childId, schema.videoContentRules.videoId],
+      set: { contentRule: input.rule, videoTitle: membership.videoTitle, videoThumbnail: membership.videoThumbnail, duration: membership.duration, channelTitle: membership.channelTitle },
+    })
+    return c.json({ videoRule: await db.query.videoContentRules.findFirst({ where: and(eq(schema.videoContentRules.childId, childId), eq(schema.videoContentRules.videoId, videoId)) }) })
+  })
+
+  app.delete('/api/parent/children/:id/video-rules/:videoId', async c => {
+    const { db, childId } = await ownedChild(c)
+    const videoId = z.string().trim().min(1).max(64).parse(c.req.param('videoId'))
+    await db.delete(schema.videoContentRules).where(and(eq(schema.videoContentRules.childId, childId), eq(schema.videoContentRules.videoId, videoId)))
+    return c.json({ success: true })
   })
 
   app.put('/api/parent/children/:id/content/:type/:contentId/rule', async c => {
@@ -211,14 +254,15 @@ export function createApp(dependencies: AppDependencies = {}) {
     const input = z.object({ videoId: z.string().trim().min(1).max(64) }).parse(await c.req.json())
     const db = drizzle(c.env.DB, { schema })
 
-    const direct = await db.query.allowedVideos.findFirst({
+    const directMatches = await db.query.allowedVideos.findMany({
       where: and(
         eq(schema.allowedVideos.childId, user.id!),
         eq(schema.allowedVideos.videoId, input.videoId),
         eq(schema.allowedVideos.isAvailable, true),
       ),
     })
-    const channel = direct ? null : await db.select({ id: schema.allowedChannels.id, contentRule: schema.allowedChannels.contentRule })
+    const override = await db.query.videoContentRules.findFirst({ where: and(eq(schema.videoContentRules.childId, user.id!), eq(schema.videoContentRules.videoId, input.videoId)) })
+    const channels = await db.select({ id: schema.allowedChannels.id, contentRule: schema.allowedChannels.contentRule })
       .from(schema.allowedChannels)
       .innerJoin(schema.channelVideos, eq(schema.channelVideos.channelId, schema.allowedChannels.channelId))
       .where(and(
@@ -226,8 +270,8 @@ export function createApp(dependencies: AppDependencies = {}) {
         eq(schema.allowedChannels.isAvailable, true),
         eq(schema.channelVideos.videoId, input.videoId),
       ))
-      .get()
-    const playlist = direct || channel ? null : await db.select({ id: schema.allowedPlaylists.id, contentRule: schema.allowedPlaylists.contentRule })
+      .all()
+    const playlists = await db.select({ id: schema.allowedPlaylists.id, contentRule: schema.allowedPlaylists.contentRule })
       .from(schema.allowedPlaylists)
       .innerJoin(schema.playlistVideos, eq(schema.playlistVideos.playlistId, schema.allowedPlaylists.playlistId))
       .where(and(
@@ -235,14 +279,18 @@ export function createApp(dependencies: AppDependencies = {}) {
         eq(schema.allowedPlaylists.isAvailable, true),
         eq(schema.playlistVideos.videoId, input.videoId),
       ))
-      .get()
+      .all()
 
-    if (!direct && !channel && !playlist) {
+    if (!directMatches.length && !channels.length && !playlists.length) {
       throw new HTTPException(403, { message: 'Video is not Approved Content' })
     }
     const settings = await ensureTimeSettings(db, user.id!)
     const day = viewingDayAt(now(), settings.timeZone, settings)
-    const usageBucket = (direct?.contentRule ?? channel?.contentRule ?? playlist?.contentRule) === 'exempt' ? 'exempt' : 'restricted'
+    const directRules = [...directMatches.map(item => item.contentRule), ...(override ? [override.contentRule] : [])]
+    const winningRules = directRules.length ? directRules : playlists.length ? playlists.map(item => item.contentRule) : channels.map(item => item.contentRule)
+    const resolvedRule = winningRules.includes('restricted') ? 'restricted' : 'exempt'
+    const source = directRules.length ? 'video' : playlists.length ? 'playlist' : 'channel'
+    const usageBucket = resolvedRule === 'exempt' ? 'exempt' : 'restricted'
     const usage = await dailyUsage(db, user.id!, day.localDate)
     const limitSeconds = (usageBucket === 'exempt' ? settings.safetyCapMinutes : day.allowanceMinutes) * 60
     const usedSeconds = usageBucket === 'exempt' ? usage.exemptSeconds : usage.restrictedSeconds
@@ -260,7 +308,7 @@ export function createApp(dependencies: AppDependencies = {}) {
     return c.json({
       authorization: {
         videoId: input.videoId,
-        source: direct ? 'video' : channel ? 'channel' : 'playlist',
+        source,
         usageBucket,
         authorizedAt: authorizedAt.toISOString(),
         sessionId,

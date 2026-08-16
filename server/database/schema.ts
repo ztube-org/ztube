@@ -89,6 +89,20 @@ export const allowedVideos = sqliteTable('allowed_videos', {
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 })
 
+// Video-specific Content Rules discovered through an approved channel or playlist.
+// These are policy overrides, not duplicate standalone Approved Content cards.
+export const videoContentRules = sqliteTable('video_content_rules', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  childId: integer('child_id').notNull().references(() => children.id, { onDelete: 'cascade' }),
+  videoId: text('video_id').notNull(),
+  contentRule: text('content_rule').notNull(),
+  videoTitle: text('video_title').notNull(),
+  videoThumbnail: text('video_thumbnail'),
+  duration: integer('duration'),
+  channelTitle: text('channel_title'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+}, table => [uniqueIndex('video_content_rules_child_video').on(table.childId, table.videoId)])
+
 // Channel videos cache
 export const channelVideos = sqliteTable('channel_videos', {
   id: integer('id').primaryKey({ autoIncrement: true }),
