@@ -28,6 +28,7 @@ const timeSettingsInput = z.object({
 })
 const playbackState = z.enum(['playing', 'paused', 'buffering', 'ended'])
 const contentRule = z.enum(['restricted', 'exempt'])
+const extensionMinutes = z.union([z.literal(15), z.literal(30), z.literal(60)])
 const HEARTBEAT_INTERVAL_SECONDS = 15
 const PLAYBACK_LEASE_SECONDS = 60
 
@@ -107,18 +108,71 @@ export function createApp(dependencies: AppDependencies = {}) {
       settings = await db.query.childTimeSettings.findFirst({ where: eq(schema.childTimeSettings.childId, childId) })
     }
     if (!settings) throw new HTTPException(500, { message: 'Unable to create time settings' })
-    return c.json({ settings, viewingDay: viewingDayAt(new Date(), settings.timeZone, settings) })
+    return c.json({ settings, viewingDay: viewingDayAt(now(), settings.timeZone, settings) })
   })
 
   app.put('/api/parent/children/:id/time-settings', async c => {
     const { db, childId } = await ownedChild(c)
-    const input = timeSettingsInput.parse(await c.req.json())
-    await db.insert(schema.childTimeSettings).values({ childId, ...input, updatedAt: new Date() }).onConflictDoUpdate({
+    const input = timeSettingsInput.extend({ confirmReduction: z.boolean().optional().default(false) }).parse(await c.req.json())
+    const current = await ensureTimeSettings(db, childId)
+    const currentDay = viewingDayAt(now(), current.timeZone, current)
+    const usage = await dailyUsage(db, childId, currentDay.localDate)
+    const proposedDay = viewingDayAt(now(), input.timeZone, input)
+    const restrictedReduction = proposedDay.allowanceMinutes < currentDay.allowanceMinutes
+      && usage.restrictedSeconds >= proposedDay.allowanceMinutes * 60
+    const exemptReduction = input.safetyCapMinutes < current.safetyCapMinutes
+      && usage.exemptSeconds >= input.safetyCapMinutes * 60
+    if ((restrictedReduction || exemptReduction) && !input.confirmReduction) {
+      return c.json({
+        message: 'Current usage meets or exceeds the proposed allowance. Saving will immediately end affected Active Playback.',
+        requiresConfirmation: true,
+        affectedBuckets: [restrictedReduction ? 'restricted' : null, exemptReduction ? 'exempt' : null].filter(Boolean),
+      }, 409)
+    }
+    const { confirmReduction: _confirmReduction, ...settingsInput } = input
+    await db.insert(schema.childTimeSettings).values({ childId, ...settingsInput, updatedAt: now() }).onConflictDoUpdate({
       target: schema.childTimeSettings.childId,
-      set: { ...input, updatedAt: new Date() },
+      set: { ...settingsInput, updatedAt: now() },
     })
+    if (restrictedReduction || exemptReduction) {
+      const buckets = [restrictedReduction ? 'restricted' : null, exemptReduction ? 'exempt' : null].filter(Boolean) as string[]
+      await db.update(schema.playbackSessions).set({ lastState: 'ended', endedAt: now() })
+        .where(and(eq(schema.playbackSessions.childId, childId), isNull(schema.playbackSessions.endedAt), or(...buckets.map(bucket => eq(schema.playbackSessions.usageBucket, bucket)))))
+    }
     const settings = await db.query.childTimeSettings.findFirst({ where: eq(schema.childTimeSettings.childId, childId) })
-    return c.json({ settings, viewingDay: viewingDayAt(new Date(), input.timeZone, input) })
+    return c.json({ settings, viewingDay: viewingDayAt(now(), input.timeZone, input) })
+  })
+
+  app.get('/api/parent/children/:id/watch-time', async c => {
+    const { db, childId } = await ownedChild(c)
+    const settings = await ensureTimeSettings(db, childId)
+    const day = viewingDayAt(now(), settings.timeZone, settings)
+    const usage = await dailyUsage(db, childId, day.localDate)
+    return c.json(parentWatchTimeStatus(day.localDate, day.allowanceMinutes, settings.safetyCapMinutes, usage))
+  })
+
+  app.post('/api/parent/children/:id/watch-time/extensions', async c => {
+    const { db, childId } = await ownedChild(c)
+    const input = z.object({ bucket: z.enum(['restricted', 'exempt']), minutes: extensionMinutes }).parse(await c.req.json())
+    const settings = await ensureTimeSettings(db, childId)
+    const day = viewingDayAt(now(), settings.timeZone, settings)
+    await ensureDailyUsage(db, childId, day.localDate)
+    await c.env.DB.prepare(`UPDATE daily_usage_summaries SET ${input.bucket === 'restricted' ? 'restricted_extension_minutes' : 'exempt_extension_minutes'} = ${input.bucket === 'restricted' ? 'restricted_extension_minutes' : 'exempt_extension_minutes'} + ?, updated_at = ? WHERE child_id = ? AND viewing_day = ?`)
+      .bind(input.minutes, epochSeconds(now()), childId, day.localDate).run()
+    const usage = await dailyUsage(db, childId, day.localDate)
+    return c.json(parentWatchTimeStatus(day.localDate, day.allowanceMinutes, settings.safetyCapMinutes, usage))
+  })
+
+  app.put('/api/parent/children/:id/watch-time/restricted-unlock', async c => {
+    const { db, childId } = await ownedChild(c)
+    const input = z.object({ unlocked: z.boolean() }).parse(await c.req.json())
+    const settings = await ensureTimeSettings(db, childId)
+    const day = viewingDayAt(now(), settings.timeZone, settings)
+    await ensureDailyUsage(db, childId, day.localDate)
+    await db.update(schema.dailyUsageSummaries).set({ restrictedUnlocked: input.unlocked, updatedAt: now() })
+      .where(and(eq(schema.dailyUsageSummaries.childId, childId), eq(schema.dailyUsageSummaries.viewingDay, day.localDate)))
+    const usage = await dailyUsage(db, childId, day.localDate)
+    return c.json(parentWatchTimeStatus(day.localDate, day.allowanceMinutes, settings.safetyCapMinutes, usage))
   })
 
   app.get('/api/parent/children/:id/content', async c => {
@@ -245,7 +299,7 @@ export function createApp(dependencies: AppDependencies = {}) {
     const usage = await dailyUsage(db, user.id!, day.localDate)
     return c.json({
       channels, playlists, videos,
-      watchTime: watchTimeStatus(day.allowanceMinutes * 60, settings.safetyCapMinutes * 60, usage),
+      watchTime: watchTimeStatus(...effectiveLimits(day.allowanceMinutes, settings.safetyCapMinutes, usage), usage),
     })
   })
 
@@ -292,7 +346,8 @@ export function createApp(dependencies: AppDependencies = {}) {
     const source = directRules.length ? 'video' : playlists.length ? 'playlist' : 'channel'
     const usageBucket = resolvedRule === 'exempt' ? 'exempt' : 'restricted'
     const usage = await dailyUsage(db, user.id!, day.localDate)
-    const limitSeconds = (usageBucket === 'exempt' ? settings.safetyCapMinutes : day.allowanceMinutes) * 60
+    const limits = effectiveLimits(day.allowanceMinutes, settings.safetyCapMinutes, usage)
+    const limitSeconds = usageBucket === 'exempt' ? limits[1] : limits[0]
     const usedSeconds = usageBucket === 'exempt' ? usage.exemptSeconds : usage.restrictedSeconds
     const remainingSeconds = Math.max(0, limitSeconds - usedSeconds)
     if (remainingSeconds === 0) throw new HTTPException(403, { message: usageBucket === 'exempt' ? 'Safety Cap exhausted' : 'Daily Allowance exhausted' })
@@ -325,7 +380,7 @@ export function createApp(dependencies: AppDependencies = {}) {
     const settings = await ensureTimeSettings(db, user.id!)
     const day = viewingDayAt(now(), settings.timeZone, settings)
     const usage = await dailyUsage(db, user.id!, day.localDate)
-    return c.json({ viewingDay: day.localDate, ...watchTimeStatus(day.allowanceMinutes * 60, settings.safetyCapMinutes * 60, usage) })
+    return c.json({ viewingDay: day.localDate, ...watchTimeStatus(...effectiveLimits(day.allowanceMinutes, settings.safetyCapMinutes, usage), usage) })
   })
 
   app.post('/api/child/playback-authorizations/:id/heartbeats', async c => {
@@ -339,11 +394,14 @@ export function createApp(dependencies: AppDependencies = {}) {
     const day = viewingDayAt(acknowledgedAt, settings.timeZone, settings)
     if (input.sequence <= session.lastSequence || session.endedAt) {
       const usage = await dailyUsage(db, user.id!, day.localDate)
-      const limitSeconds = (session.usageBucket === 'exempt' ? settings.safetyCapMinutes : day.allowanceMinutes) * 60
+      const limits = effectiveLimits(day.allowanceMinutes, settings.safetyCapMinutes, usage)
+      const limitSeconds = session.usageBucket === 'exempt' ? limits[1] : limits[0]
       const usedSeconds = session.usageBucket === 'exempt' ? usage.exemptSeconds : usage.restrictedSeconds
       return c.json({ accepted: false, sequence: session.lastSequence, remainingSeconds: Math.max(0, limitSeconds - usedSeconds), authorized: false })
     }
-    const limitSeconds = (session.usageBucket === 'exempt' ? settings.safetyCapMinutes : day.allowanceMinutes) * 60
+    const usageBeforeHeartbeat = await dailyUsage(db, user.id!, day.localDate)
+    const limits = effectiveLimits(day.allowanceMinutes, settings.safetyCapMinutes, usageBeforeHeartbeat)
+    const limitSeconds = session.usageBucket === 'exempt' ? limits[1] : limits[0]
     const acknowledgedEpoch = epochSeconds(acknowledgedAt)
     const nextLeaseEpoch = acknowledgedEpoch + PLAYBACK_LEASE_SECONDS
     const results = await c.env.DB.batch([
@@ -414,10 +472,27 @@ async function ensureTimeSettings(db: ReturnType<typeof drizzle<typeof schema>>,
 
 async function dailyUsage(db: ReturnType<typeof drizzle<typeof schema>>, childId: number, viewingDay: string) {
   const summary = await db.query.dailyUsageSummaries.findFirst({ where: and(eq(schema.dailyUsageSummaries.childId, childId), eq(schema.dailyUsageSummaries.viewingDay, viewingDay)) })
-  return { restrictedSeconds: summary?.restrictedSeconds ?? 0, exemptSeconds: summary?.exemptSeconds ?? 0 }
+  return {
+    restrictedSeconds: summary?.restrictedSeconds ?? 0,
+    exemptSeconds: summary?.exemptSeconds ?? 0,
+    restrictedExtensionMinutes: summary?.restrictedExtensionMinutes ?? 0,
+    exemptExtensionMinutes: summary?.exemptExtensionMinutes ?? 0,
+    restrictedUnlocked: summary?.restrictedUnlocked ?? false,
+  }
 }
 
-function watchTimeStatus(allowanceSeconds: number, safetyCapSeconds: number, usage: { restrictedSeconds: number; exemptSeconds: number }) {
+async function ensureDailyUsage(db: ReturnType<typeof drizzle<typeof schema>>, childId: number, viewingDay: string) {
+  await db.insert(schema.dailyUsageSummaries).values({ childId, viewingDay }).onConflictDoNothing()
+}
+
+type Usage = Awaited<ReturnType<typeof dailyUsage>>
+
+function effectiveLimits(allowanceMinutes: number, safetyCapMinutes: number, usage: Usage): [number, number] {
+  const restricted = usage.restrictedUnlocked ? 24 * 60 * 60 : (allowanceMinutes + usage.restrictedExtensionMinutes) * 60
+  return [restricted, (safetyCapMinutes + usage.exemptExtensionMinutes) * 60]
+}
+
+function watchTimeStatus(allowanceSeconds: number, safetyCapSeconds: number, usage: Usage) {
   return {
     usedSeconds: usage.restrictedSeconds,
     remainingSeconds: Math.max(0, allowanceSeconds - usage.restrictedSeconds),
@@ -426,11 +501,32 @@ function watchTimeStatus(allowanceSeconds: number, safetyCapSeconds: number, usa
       usedSeconds: usage.restrictedSeconds,
       remainingSeconds: Math.max(0, allowanceSeconds - usage.restrictedSeconds),
       locked: usage.restrictedSeconds >= allowanceSeconds,
+      unlocked: usage.restrictedUnlocked,
     },
     exempt: {
       usedSeconds: usage.exemptSeconds,
       remainingSeconds: Math.max(0, safetyCapSeconds - usage.exemptSeconds),
       locked: usage.exemptSeconds >= safetyCapSeconds,
+    },
+  }
+}
+
+function parentWatchTimeStatus(viewingDay: string, allowanceMinutes: number, safetyCapMinutes: number, usage: Usage) {
+  const [allowanceSeconds, safetyCapSeconds] = effectiveLimits(allowanceMinutes, safetyCapMinutes, usage)
+  const status = watchTimeStatus(allowanceSeconds, safetyCapSeconds, usage)
+  return {
+    viewingDay,
+    restricted: {
+      ...status.restricted,
+      usedMinutes: Math.floor(usage.restrictedSeconds / 60),
+      remainingMinutes: usage.restrictedUnlocked ? null : Math.ceil(status.restricted.remainingSeconds / 60),
+      extensionMinutes: usage.restrictedExtensionMinutes,
+    },
+    exempt: {
+      ...status.exempt,
+      usedMinutes: Math.floor(usage.exemptSeconds / 60),
+      remainingMinutes: Math.ceil(status.exempt.remainingSeconds / 60),
+      extensionMinutes: usage.exemptExtensionMinutes,
     },
   }
 }

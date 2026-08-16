@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { apiFetch, useApi } from '../../../../../src/api'
+import { ApiError, apiFetch, useApi } from '../../../../../src/api'
 
 const route = useRoute()
 const childId = parseInt(route.params.id as string)
 
 const { data, refresh } = useApi<any>(`/api/parent/children/${childId}/content`)
 const { data: timeData, refresh: refreshTimeSettings } = useApi<any>(`/api/parent/children/${childId}/time-settings`)
+const { data: watchTime, refresh: refreshWatchTime } = useApi<any>(`/api/parent/children/${childId}/watch-time`)
 
 const detectedTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 const timeForm = reactive({
@@ -35,14 +36,38 @@ async function saveTimeSettings() {
   timeError.value = ''
   timeSaved.value = false
   try {
-    await apiFetch(`/api/parent/children/${childId}/time-settings`, { method: 'PUT', body: timeForm })
+    try {
+      await apiFetch(`/api/parent/children/${childId}/time-settings`, { method: 'PUT', body: timeForm })
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 409 || error.response.requiresConfirmation !== true
+        || !confirm(`${error.message}\n\nSave these recurring allowances anyway?`)) throw error
+      await apiFetch(`/api/parent/children/${childId}/time-settings`, { method: 'PUT', body: { ...timeForm, confirmReduction: true } })
+    }
     await refreshTimeSettings()
+    await refreshWatchTime()
     timeSaved.value = true
   } catch (error) {
     timeError.value = error instanceof Error ? error.message : 'Failed to save time settings'
   } finally {
     timeSaving.value = false
   }
+}
+
+const interventionSaving = ref(false)
+async function extendToday(bucket: 'restricted' | 'exempt', minutes: 15 | 30 | 60) {
+  interventionSaving.value = true
+  try {
+    await apiFetch(`/api/parent/children/${childId}/watch-time/extensions`, { method: 'POST', body: { bucket, minutes } })
+    await refreshWatchTime()
+  } finally { interventionSaving.value = false }
+}
+
+async function setRestrictedUnlock(unlocked: boolean) {
+  interventionSaving.value = true
+  try {
+    await apiFetch(`/api/parent/children/${childId}/watch-time/restricted-unlock`, { method: 'PUT', body: { unlocked } })
+    await refreshWatchTime()
+  } finally { interventionSaving.value = false }
 }
 
 const activeTab = ref('channels')
@@ -166,6 +191,43 @@ function formatDuration(seconds: number | null): string {
           {{ timeData.viewingDay.allowanceMinutes }} minutes
         </p>
       </form>
+    </UCard>
+
+    <UCard class="mb-8">
+      <template #header>
+        <div>
+          <h2 class="text-lg font-semibold">Today's viewing</h2>
+          <p class="text-sm text-gray-500">Viewing Day {{ watchTime?.viewingDay }}. Today's changes expire at local midnight.</p>
+        </div>
+      </template>
+      <div v-if="watchTime" class="grid gap-4 md:grid-cols-2">
+        <div class="rounded-lg border p-4">
+          <h3 class="font-semibold">Restricted Watch Time</h3>
+          <p class="mt-1 text-2xl font-bold">{{ watchTime.restricted.usedMinutes }} min used</p>
+          <p class="text-sm text-gray-500">
+            {{ watchTime.restricted.unlocked ? 'Unlocked for today' : `${watchTime.restricted.remainingMinutes} min remaining` }}
+            <span v-if="watchTime.restricted.extensionMinutes"> · +{{ watchTime.restricted.extensionMinutes }} min today</span>
+          </p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <UButton v-for="minutes in [15, 30, 60]" :key="minutes" size="xs" variant="soft" :disabled="interventionSaving" @click="extendToday('restricted', minutes as 15 | 30 | 60)">+{{ minutes }} min</UButton>
+            <UButton size="xs" :color="watchTime.restricted.unlocked ? 'gray' : 'primary'" :disabled="interventionSaving" @click="setRestrictedUnlock(!watchTime.restricted.unlocked)">
+              {{ watchTime.restricted.unlocked ? 'Restore today’s limit' : 'Unlock for today' }}
+            </UButton>
+          </div>
+        </div>
+        <div class="rounded-lg border p-4">
+          <h3 class="font-semibold">Allowance-Exempt Content</h3>
+          <p class="mt-1 text-2xl font-bold">{{ watchTime.exempt.usedMinutes }} min used</p>
+          <p class="text-sm text-gray-500">
+            {{ watchTime.exempt.remainingMinutes }} min remaining
+            <span v-if="watchTime.exempt.extensionMinutes"> · +{{ watchTime.exempt.extensionMinutes }} min today</span>
+          </p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <UButton v-for="minutes in [15, 30, 60]" :key="minutes" size="xs" variant="soft" :disabled="interventionSaving" @click="extendToday('exempt', minutes as 15 | 30 | 60)">+{{ minutes }} min</UButton>
+          </div>
+        </div>
+      </div>
+      <p v-else class="text-sm text-gray-500">Loading today's usage…</p>
     </UCard>
 
     <!-- Add Content Form -->

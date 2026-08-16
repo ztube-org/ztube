@@ -32,6 +32,9 @@ export const dailyUsageSummaries = sqliteTable('daily_usage_summaries', {
   viewingDay: text('viewing_day').notNull(),
   restrictedSeconds: integer('restricted_seconds').notNull().default(0),
   exemptSeconds: integer('exempt_seconds').notNull().default(0),
+  restrictedExtensionMinutes: integer('restricted_extension_minutes').notNull().default(0),
+  exemptExtensionMinutes: integer('exempt_extension_minutes').notNull().default(0),
+  restrictedUnlocked: integer('restricted_unlocked', { mode: 'boolean' }).notNull().default(false),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 }, table => [uniqueIndex('daily_usage_child_day').on(table.childId, table.viewingDay)])
 

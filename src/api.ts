@@ -7,6 +7,12 @@ export interface CurrentUser {
   role: 'superadmin' | 'parent' | 'child'
 }
 
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number, readonly response: Record<string, unknown>) {
+    super(message)
+  }
+}
+
 export async function apiFetch<T>(url: string, init?: Omit<RequestInit, 'body'> & { body?: unknown }): Promise<T> {
   const { body, ...requestInit } = init || {}
   const options: RequestInit = { ...requestInit, headers: { Accept: 'application/json', ...requestInit.headers } }
@@ -16,7 +22,7 @@ export async function apiFetch<T>(url: string, init?: Omit<RequestInit, 'body'> 
   } else if (typeof body === 'string') options.body = body
   const response = await fetch(url, options)
   const responseBody = await response.json() as T & { message?: string }
-  if (!response.ok) throw new Error(responseBody.message || `Request failed (${response.status})`)
+  if (!response.ok) throw new ApiError(responseBody.message || `Request failed (${response.status})`, response.status, responseBody)
   return responseBody
 }
 
