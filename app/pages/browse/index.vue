@@ -1,7 +1,7 @@
 <script setup lang="ts">
-definePageMeta({ middleware: 'auth' })
+import { useApi } from '../../../src/api'
 
-const { data } = await useFetch('/api/child/browse')
+const { data } = useApi<any>('/api/child/browse')
 
 function formatDuration(seconds: number | null): string {
   if (!seconds) return ''

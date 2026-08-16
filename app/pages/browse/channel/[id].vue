@@ -1,10 +1,11 @@
 <script setup lang="ts">
-definePageMeta({ middleware: 'auth' })
+import { useRoute } from 'vue-router'
+import { useApi } from '../../../../src/api'
 
 const route = useRoute()
 const channelId = route.params.id as string
 
-const { data } = await useFetch(`/api/child/channel/${channelId}/videos`)
+const { data } = useApi<any>(`/api/child/channel/${channelId}/videos`)
 
 function formatDuration(seconds: number | null): string {
   if (!seconds) return ''

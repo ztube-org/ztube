@@ -1,5 +1,7 @@
 <script setup lang="ts">
-definePageMeta({ middleware: 'auth', layout: false })
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { useApi, useAuth } from '../../src/api'
 
 const route = useRoute()
 const videoId = route.query.v as string
@@ -9,7 +11,7 @@ const { logout } = useAuth()
 
 // Fetch playlist videos if playlist param present
 const playlistData = playlistParam
-  ? await useFetch(`/api/child/playlist/${playlistParam}/videos`)
+  ? useApi<any>(`/api/child/playlist/${playlistParam}/videos`)
   : { data: ref(null) }
 
 const playbackSpeed = ref(1)
@@ -123,7 +125,7 @@ watch(playbackSpeed, (speed) => {
             class="flex gap-3 p-3 hover:bg-gray-700 transition"
             :class="{ 'bg-gray-700': video.videoId === videoId }"
           >
-            <span class="text-sm text-gray-400 w-6 text-center">{{ index + 1 }}</span>
+            <span class="text-sm text-gray-400 w-6 text-center">{{ Number(index) + 1 }}</span>
             <div class="relative flex-shrink-0">
               <img :src="video.videoThumbnail" class="w-24 h-14 object-cover rounded" />
               <span v-if="video.duration" class="absolute bottom-0.5 right-0.5 bg-black/80 text-xs px-1 rounded">

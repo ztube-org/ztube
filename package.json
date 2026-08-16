@@ -3,31 +3,36 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "nuxt build",
-    "dev": "nuxt dev",
-    "generate": "nuxt generate",
-    "preview": "nuxt preview",
-    "postinstall": "nuxt prepare",
-    "db:push": "drizzle-kit push",
+    "build": "vite build",
+    "dev": "vite",
+    "preview": "vite preview",
     "db:generate": "drizzle-kit generate",
-    "db:studio": "drizzle-kit studio",
-    "lint": "oxlint ."
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "cf:typegen": "wrangler types --env-file wrangler-types.env",
+    "cf:typecheck": "wrangler types --check --env-file wrangler-types.env",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.worker.json",
+    "lint": "oxlint .",
+    "check": "npm run lint && npm run cf:typecheck && npm run typecheck && npm run build",
+    "deploy": "npm run check && wrangler deploy"
   },
   "dependencies": {
     "@nuxt/ui": "^4.4.0",
-    "bcrypt": "^6.0.0",
-    "better-sqlite3": "^12.6.2",
     "drizzle-orm": "^0.45.1",
-    "iron-webcrypto": "^2.0.0",
-    "nuxt": "^4.3.0",
+    "hono": "^4.13.2",
     "vue": "^3.5.27",
     "vue-router": "^4.6.4",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/bcrypt": "^6.0.0",
-    "@types/better-sqlite3": "^7.6.13",
+    "@cloudflare/vite-plugin": "^1.52.1",
+    "@types/node": "^26.2.0",
+    "@vitejs/plugin-vue": "^6.0.8",
     "drizzle-kit": "^0.31.8",
-    "oxlint": "^1.42.0"
+    "oxlint": "^1.42.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.1",
+    "vue-tsc": "^3.3.10",
+    "wrangler": "^4.123.0"
   }
 }

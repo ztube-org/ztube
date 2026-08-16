@@ -3,17 +3,16 @@ import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core'
 // Parents table
 export const parents = sqliteTable('parents', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  username: text('username').notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
+  email: text('email').notNull().unique(),
+  displayName: text('display_name'),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 })
 
 // Children table
 export const children = sqliteTable('children', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  parentId: integer('parent_id').notNull().references(() => parents.id),
-  username: text('username').notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
+  parentId: integer('parent_id').notNull().references(() => parents.id, { onDelete: 'cascade' }),
+  email: text('email').notNull().unique(),
   displayName: text('display_name'),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 })
@@ -21,8 +20,9 @@ export const children = sqliteTable('children', {
 // Allowed channels
 export const allowedChannels = sqliteTable('allowed_channels', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  childId: integer('child_id').notNull().references(() => children.id),
+  childId: integer('child_id').notNull().references(() => children.id, { onDelete: 'cascade' }),
   channelId: text('channel_id').notNull(),
+  uploadsPlaylistId: text('uploads_playlist_id').notNull(),
   channelTitle: text('channel_title').notNull(),
   channelThumbnail: text('channel_thumbnail'),
   lastFetchedAt: integer('last_fetched_at', { mode: 'timestamp' }),
@@ -33,7 +33,7 @@ export const allowedChannels = sqliteTable('allowed_channels', {
 // Allowed playlists
 export const allowedPlaylists = sqliteTable('allowed_playlists', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  childId: integer('child_id').notNull().references(() => children.id),
+  childId: integer('child_id').notNull().references(() => children.id, { onDelete: 'cascade' }),
   playlistId: text('playlist_id').notNull(),
   playlistTitle: text('playlist_title').notNull(),
   playlistThumbnail: text('playlist_thumbnail'),
@@ -45,7 +45,7 @@ export const allowedPlaylists = sqliteTable('allowed_playlists', {
 // Allowed videos
 export const allowedVideos = sqliteTable('allowed_videos', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  childId: integer('child_id').notNull().references(() => children.id),
+  childId: integer('child_id').notNull().references(() => children.id, { onDelete: 'cascade' }),
   videoId: text('video_id').notNull(),
   videoTitle: text('video_title').notNull(),
   videoThumbnail: text('video_thumbnail'),

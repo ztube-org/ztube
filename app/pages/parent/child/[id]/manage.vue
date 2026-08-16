@@ -1,10 +1,12 @@
 <script setup lang="ts">
-definePageMeta({ middleware: 'auth' })
+import { ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { apiFetch, useApi } from '../../../../../src/api'
 
 const route = useRoute()
 const childId = parseInt(route.params.id as string)
 
-const { data, refresh } = await useFetch(`/api/parent/children/${childId}/content`)
+const { data, refresh } = useApi<any>(`/api/parent/children/${childId}/content`)
 
 const activeTab = ref('channels')
 const addUrl = ref('')
@@ -16,7 +18,7 @@ async function addContent() {
   addLoading.value = true
 
   try {
-    await $fetch('/api/parent/content/add', {
+    await apiFetch('/api/parent/content/add', {
       method: 'POST',
       body: { childId, url: addUrl.value },
     })
@@ -33,7 +35,7 @@ async function deleteContent(id: number, type: string) {
   if (!confirm('Remove this content from allowlist?')) return
 
   try {
-    await $fetch(`/api/parent/content/${id}?type=${type}`, { method: 'DELETE' })
+    await apiFetch(`/api/parent/content/${id}?type=${type}`, { method: 'DELETE' })
     await refresh()
   } catch (e: any) {
     alert(e.data?.message || 'Failed to delete')
@@ -55,7 +57,7 @@ function formatDuration(seconds: number | null): string {
         <UButton color="gray" variant="ghost" icon="i-heroicons-arrow-left" />
       </NuxtLink>
       <h1 class="text-2xl font-bold">
-        {{ data?.child?.displayName || data?.child?.username }}'s Content
+        {{ data?.child?.displayName || data?.child?.email }}'s Content
       </h1>
     </div>
 

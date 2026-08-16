@@ -1,12 +1,12 @@
 <script setup lang="ts">
-definePageMeta({ middleware: 'auth' })
+import { reactive, ref } from 'vue'
+import { apiFetch, useApi } from '../../../src/api'
 
-const { data: childrenData, refresh } = await useFetch('/api/parent/children')
+const { data: childrenData, refresh } = useApi<any>('/api/parent/children')
 
 const showCreateModal = ref(false)
 const createForm = reactive({
-  username: '',
-  password: '',
+  email: '',
   displayName: '',
 })
 const createError = ref('')
@@ -17,13 +17,12 @@ async function createChild() {
   createLoading.value = true
 
   try {
-    await $fetch('/api/parent/children', {
+    await apiFetch('/api/parent/children', {
       method: 'POST',
       body: createForm,
     })
     showCreateModal.value = false
-    createForm.username = ''
-    createForm.password = ''
+    createForm.email = ''
     createForm.displayName = ''
     await refresh()
   } catch (e: any) {
@@ -55,10 +54,10 @@ async function createChild() {
       <UCard v-for="child in childrenData?.children" :key="child.id">
         <template #header>
           <div class="flex items-center gap-3">
-            <UAvatar :alt="child.displayName || child.username" size="lg" />
+            <UAvatar :alt="child.displayName || child.email" size="lg" />
             <div>
-              <h3 class="font-semibold">{{ child.displayName || child.username }}</h3>
-              <p class="text-sm text-gray-500">@{{ child.username }}</p>
+              <h3 class="font-semibold">{{ child.displayName || child.email }}</h3>
+              <p class="text-sm text-gray-500">{{ child.email }}</p>
             </div>
           </div>
         </template>
@@ -87,17 +86,13 @@ async function createChild() {
         </template>
 
         <form @submit.prevent="createChild" class="space-y-4">
-          <UFormGroup label="Username">
-            <UInput v-model="createForm.username" placeholder="Child's username" required />
-          </UFormGroup>
+          <UFormField label="Child's Google email">
+            <UInput v-model="createForm.email" type="email" placeholder="child@example.com" required />
+          </UFormField>
 
-          <UFormGroup label="Password">
-            <UInput v-model="createForm.password" type="password" placeholder="Password (8+ chars)" required />
-          </UFormGroup>
-
-          <UFormGroup label="Display Name (optional)">
+          <UFormField label="Display Name (optional)">
             <UInput v-model="createForm.displayName" placeholder="Friendly name" />
-          </UFormGroup>
+          </UFormField>
 
           <UAlert v-if="createError" color="red" :title="createError" />
 
