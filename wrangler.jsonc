@@ -26,7 +26,7 @@
     {
       "binding": "DB",
       "database_name": "ztube-db",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "206c2ae5-0ac7-45ac-9e42-9fa79c21cad8",
       "migrations_dir": "migrations"
     }
   ],
