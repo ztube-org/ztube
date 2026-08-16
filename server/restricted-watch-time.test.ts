@@ -26,7 +26,7 @@ class IsolatedD1 {
 
 async function fixture() {
   const d1 = new IsolatedD1()
-  for (const migration of ['0001_initial.sql', '0002_child_time_settings.sql', '0003_restricted_watch_time.sql']) {
+  for (const migration of ['0001_initial.sql', '0002_child_time_settings.sql', '0003_restricted_watch_time.sql', '0004_active_playback_lease.sql']) {
     await d1.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), 'utf8'))
   }
   d1.sqlite.exec(`
@@ -50,7 +50,7 @@ test('counts server wall-clock time only after an acknowledged playing state', a
   await request(`/api/child/playback-authorizations/${sessionId}/heartbeats`, { sequence: 1, state: 'playing' })
   clock.setSeconds(clock.getSeconds() + 30)
   const response = await request(`/api/child/playback-authorizations/${sessionId}/heartbeats`, { sequence: 2, state: 'paused' })
-  assert.deepEqual(await response.json(), { accepted: true, sequence: 2, remainingSeconds: 870, authorized: true })
+  assert.deepEqual(await response.json(), { accepted: true, sequence: 2, remainingSeconds: 870, authorized: true, leaseExpiresAt: '2026-08-17T12:01:30.000Z' })
   clock.setSeconds(clock.getSeconds() + 60)
   await request(`/api/child/playback-authorizations/${sessionId}/heartbeats`, { sequence: 3, state: 'buffering' })
   const summary = d1.sqlite.prepare('SELECT restricted_seconds, exempt_seconds FROM daily_usage_summaries').get() as any
@@ -75,7 +75,7 @@ test('ends Playback Authorization at zero and exposes locked but discoverable co
   await request(`/api/child/playback-authorizations/${sessionId}/heartbeats`, { sequence: 1, state: 'playing' })
   clock.setSeconds(clock.getSeconds() + 10)
   const result = await request(`/api/child/playback-authorizations/${sessionId}/heartbeats`, { sequence: 2, state: 'playing' })
-  assert.deepEqual(await result.json(), { accepted: true, sequence: 2, remainingSeconds: 0, authorized: false })
+  assert.deepEqual(await result.json(), { accepted: true, sequence: 2, remainingSeconds: 0, authorized: false, leaseExpiresAt: null })
   const browse = await (await request('/api/child/browse')).json() as any
   assert.equal(browse.watchTime.locked, true)
   assert.equal(browse.videos[0].videoId, 'approved')

@@ -71,24 +71,34 @@ export function createPlaybackReporter(options: {
   onRemaining: (seconds: number) => void
   document?: Pick<Document, 'hidden' | 'pictureInPictureElement' | 'addEventListener' | 'removeEventListener'>
   intervalMs?: number
+  leaseMs?: number
+  now?: () => number
 }) {
   let sequence = 0
   let state: PlaybackState = 'paused'
   let remaining = options.initialRemainingSeconds
   let stopped = false
+  const now = options.now ?? Date.now
+  let leaseDeadline = now() + (options.leaseMs ?? 60_000)
   const send = async () => {
     if (stopped) return
-    const response = await options.heartbeat(++sequence, state)
-    remaining = response.remainingSeconds
-    options.onRemaining(remaining)
-    if (!response.authorized) { stopped = true; options.pause() }
+    try {
+      const response = await options.heartbeat(++sequence, state)
+      if (stopped) return
+      remaining = response.remainingSeconds
+      options.onRemaining(remaining)
+      if (!response.authorized) { stopped = true; options.pause() }
+      else leaseDeadline = now() + (options.leaseMs ?? 60_000)
+    } catch {
+      if (now() >= leaseDeadline) { stopped = true; options.pause() }
+    }
   }
   const document = options.document ?? window.document
   const visibility = () => {
     if (document.hidden && !document.pictureInPictureElement) { options.pause(); state = 'paused'; void send() }
   }
   document.addEventListener('visibilitychange', visibility)
-  const timer = setInterval(() => { void send() }, options.intervalMs ?? 1000)
+  const timer = setInterval(() => { void send() }, options.intervalMs ?? 15_000)
   options.onRemaining(remaining)
   return {
     setState(next: PlaybackState) { state = next; void send() },

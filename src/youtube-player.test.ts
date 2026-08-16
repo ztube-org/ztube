@@ -56,3 +56,32 @@ test('pauses hidden playback and stops when the server ends authorization', asyn
   assert.equal(paused, 2)
   reporter.stop()
 })
+
+test('pauses when heartbeats cannot renew the 60-second lease', async () => {
+  let paused = 0
+  let time = 0
+  const document = {
+    hidden: false,
+    pictureInPictureElement: null,
+    addEventListener() {},
+    removeEventListener() {},
+  }
+  const reporter = createPlaybackReporter({
+    initialRemainingSeconds: 120,
+    document: document as any,
+    intervalMs: 60_000,
+    leaseMs: 60_000,
+    now: () => time,
+    pause: () => { paused++ },
+    onRemaining() {},
+    heartbeat: async () => { throw new Error('offline') },
+  })
+  reporter.setState('playing')
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(paused, 0)
+  time = 60_000
+  reporter.setState('playing')
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(paused, 1)
+  reporter.stop()
+})

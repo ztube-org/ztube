@@ -42,6 +42,7 @@ export const playbackSessions = sqliteTable('playback_sessions', {
   lastSequence: integer('last_sequence').notNull().default(0),
   lastState: text('last_state').notNull().default('paused'),
   lastAcknowledgedAt: integer('last_acknowledged_at', { mode: 'timestamp' }).notNull(),
+  leaseExpiresAt: integer('lease_expires_at', { mode: 'timestamp' }).notNull(),
   endedAt: integer('ended_at', { mode: 'timestamp' }),
 })
 

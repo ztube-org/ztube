@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { and, count, eq, isNull, lt, or, sql } from 'drizzle-orm'
+import { and, count, eq, isNull, lt, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/d1'
 import { z } from 'zod'
 import * as schema from './database/schema.ts'
@@ -27,6 +27,8 @@ const timeSettingsInput = z.object({
   safetyCapMinutes: allowanceMinutes,
 })
 const playbackState = z.enum(['playing', 'paused', 'buffering', 'ended'])
+const HEARTBEAT_INTERVAL_SECONDS = 15
+const PLAYBACK_LEASE_SECONDS = 60
 
 export type AppDependencies = {
   now?: () => Date
@@ -228,16 +230,23 @@ export function createApp(dependencies: AppDependencies = {}) {
     const remainingSeconds = Math.max(0, allowanceSeconds - usage)
     if (remainingSeconds === 0) throw new HTTPException(403, { message: 'Daily Allowance exhausted' })
     const sessionId = crypto.randomUUID()
-    await db.insert(schema.playbackSessions).values({
-      id: sessionId, childId: user.id!, viewingDay: day.localDate, lastAcknowledgedAt: now(),
-    })
+    const authorizedAt = now()
+    const leaseExpiresAt = new Date(authorizedAt.getTime() + PLAYBACK_LEASE_SECONDS * 1000)
+    await c.env.DB.batch([
+      c.env.DB.prepare(`UPDATE playback_sessions SET ended_at = ?, last_state = 'ended' WHERE child_id = ? AND ended_at IS NULL`).bind(epochSeconds(authorizedAt), user.id!),
+      c.env.DB.prepare(`INSERT INTO playback_sessions (id, child_id, viewing_day, last_sequence, last_state, last_acknowledged_at, lease_expires_at) VALUES (?, ?, ?, 0, 'paused', ?, ?)`).bind(
+        sessionId, user.id!, day.localDate, epochSeconds(authorizedAt), epochSeconds(leaseExpiresAt),
+      ),
+    ])
     return c.json({
       authorization: {
         videoId: input.videoId,
         source: direct ? 'video' : channel ? 'channel' : 'playlist',
-        authorizedAt: now().toISOString(),
+        authorizedAt: authorizedAt.toISOString(),
         sessionId,
         remainingSeconds,
+        heartbeatIntervalSeconds: HEARTBEAT_INTERVAL_SECONDS,
+        leaseExpiresAt: leaseExpiresAt.toISOString(),
       },
     })
   })
@@ -260,28 +269,54 @@ export function createApp(dependencies: AppDependencies = {}) {
     const settings = await ensureTimeSettings(db, user.id!)
     const acknowledgedAt = now()
     const day = viewingDayAt(acknowledgedAt, settings.timeZone, settings)
-    if (input.sequence <= session.lastSequence) {
+    if (input.sequence <= session.lastSequence || session.endedAt) {
       const usedSeconds = await restrictedUsage(db, user.id!, day.localDate)
-      return c.json({ accepted: false, sequence: session.lastSequence, remainingSeconds: Math.max(0, day.allowanceMinutes * 60 - usedSeconds), authorized: session.endedAt === null && usedSeconds < day.allowanceMinutes * 60 })
+      return c.json({ accepted: false, sequence: session.lastSequence, remainingSeconds: Math.max(0, day.allowanceMinutes * 60 - usedSeconds), authorized: false })
     }
-    let usedSeconds = await restrictedUsage(db, user.id!, day.localDate)
-    if (!session.endedAt && session.lastState === 'playing') {
-      const elapsed = Math.max(0, Math.floor((acknowledgedAt.getTime() - session.lastAcknowledgedAt.getTime()) / 1000))
-      const charge = Math.min(elapsed, Math.max(0, day.allowanceMinutes * 60 - usedSeconds))
-      if (charge > 0) {
-        await db.insert(schema.dailyUsageSummaries).values({ childId: user.id!, viewingDay: day.localDate, restrictedSeconds: charge, updatedAt: acknowledgedAt }).onConflictDoUpdate({
-          target: [schema.dailyUsageSummaries.childId, schema.dailyUsageSummaries.viewingDay],
-          set: { restrictedSeconds: sql`${schema.dailyUsageSummaries.restrictedSeconds} + ${charge}`, updatedAt: acknowledgedAt },
-        })
-        usedSeconds += charge
-      }
+    const allowanceSeconds = day.allowanceMinutes * 60
+    const acknowledgedEpoch = epochSeconds(acknowledgedAt)
+    const nextLeaseEpoch = acknowledgedEpoch + PLAYBACK_LEASE_SECONDS
+    const results = await c.env.DB.batch([
+      c.env.DB.prepare(`
+        INSERT INTO daily_usage_summaries (child_id, viewing_day, restricted_seconds, exempt_seconds, updated_at)
+        SELECT child_id, ?,
+          MIN(
+            MAX(0, MIN(?, lease_expires_at) - last_acknowledged_at),
+            MAX(0, ? - COALESCE((SELECT restricted_seconds FROM daily_usage_summaries WHERE child_id = ? AND viewing_day = ?), 0))
+          ), 0, ?
+        FROM playback_sessions
+        WHERE id = ? AND child_id = ? AND ended_at IS NULL AND last_sequence < ? AND last_state = 'playing'
+        ON CONFLICT(child_id, viewing_day) DO UPDATE SET
+          restricted_seconds = MIN(?, daily_usage_summaries.restricted_seconds + excluded.restricted_seconds),
+          updated_at = excluded.updated_at
+      `).bind(day.localDate, acknowledgedEpoch, allowanceSeconds, user.id!, day.localDate, acknowledgedEpoch, session.id, user.id!, input.sequence, allowanceSeconds),
+      c.env.DB.prepare(`
+        UPDATE playback_sessions SET
+          viewing_day = ?, last_sequence = ?, last_acknowledged_at = ?,
+          last_state = CASE WHEN ? >= lease_expires_at OR ? = 'ended' THEN 'ended' ELSE ? END,
+          lease_expires_at = CASE WHEN ? >= lease_expires_at OR ? = 'ended' THEN lease_expires_at ELSE ? END,
+          ended_at = CASE WHEN ? >= lease_expires_at OR ? = 'ended' THEN ? ELSE NULL END
+        WHERE id = ? AND child_id = ? AND ended_at IS NULL AND last_sequence < ?
+      `).bind(day.localDate, input.sequence, acknowledgedEpoch, acknowledgedEpoch, input.state, input.state,
+        acknowledgedEpoch, input.state, nextLeaseEpoch, acknowledgedEpoch, input.state, acknowledgedEpoch,
+        session.id, user.id!, input.sequence),
+    ])
+    const accepted = Number(results[1].meta.changes ?? 0) > 0
+    const [updatedSession, usedSeconds] = await Promise.all([
+      db.query.playbackSessions.findFirst({ where: eq(schema.playbackSessions.id, session.id) }),
+      restrictedUsage(db, user.id!, day.localDate),
+    ])
+    const authorized = accepted && updatedSession?.endedAt === null && usedSeconds < allowanceSeconds
+    if (accepted && !authorized && updatedSession?.endedAt === null) {
+      await db.update(schema.playbackSessions).set({ lastState: 'ended', endedAt: acknowledgedAt }).where(and(eq(schema.playbackSessions.id, session.id), isNull(schema.playbackSessions.endedAt)))
     }
-    const authorized = usedSeconds < day.allowanceMinutes * 60
-    await db.update(schema.playbackSessions).set({
-      viewingDay: day.localDate, lastSequence: input.sequence, lastState: authorized ? input.state : 'ended', lastAcknowledgedAt: acknowledgedAt,
-      endedAt: authorized && input.state !== 'ended' ? null : acknowledgedAt,
-    }).where(eq(schema.playbackSessions.id, session.id))
-    return c.json({ accepted: true, sequence: input.sequence, remainingSeconds: Math.max(0, day.allowanceMinutes * 60 - usedSeconds), authorized })
+    return c.json({
+      accepted,
+      sequence: updatedSession?.lastSequence ?? session.lastSequence,
+      remainingSeconds: Math.max(0, allowanceSeconds - usedSeconds),
+      authorized,
+      leaseExpiresAt: authorized ? updatedSession?.leaseExpiresAt.toISOString() : null,
+    })
   })
 
   app.get('/api/child/channel/:id/videos', async c => channelOrPlaylist(c, 'channel'))
@@ -412,4 +447,8 @@ function numericId(value: string | undefined) {
   const id = Number(value)
   if (!Number.isSafeInteger(id) || id <= 0) throw new HTTPException(400, { message: 'Invalid id' })
   return id
+}
+
+function epochSeconds(value: Date) {
+  return Math.floor(value.getTime() / 1000)
 }
