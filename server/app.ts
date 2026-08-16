@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { and, count, eq, isNull, lt, or } from 'drizzle-orm'
+import { and, count, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/d1'
 import { z } from 'zod'
 import * as schema from './database/schema.ts'
@@ -26,6 +26,7 @@ const timeSettingsInput = z.object({
   weekendAllowanceMinutes: allowanceMinutes,
   safetyCapMinutes: allowanceMinutes,
 })
+const playbackState = z.enum(['playing', 'paused', 'buffering', 'ended'])
 
 export type AppDependencies = {
   now?: () => Date
@@ -175,12 +176,15 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.get('/api/child/browse', async c => {
     const user = requireRole(c.get('user'), 'child')
     const db = drizzle(c.env.DB, { schema })
-    const [channels, playlists, videos] = await Promise.all([
+    const [channels, playlists, videos, settings] = await Promise.all([
       db.query.allowedChannels.findMany({ where: eq(schema.allowedChannels.childId, user.id!) }),
       db.query.allowedPlaylists.findMany({ where: eq(schema.allowedPlaylists.childId, user.id!) }),
       db.query.allowedVideos.findMany({ where: eq(schema.allowedVideos.childId, user.id!) }),
+      ensureTimeSettings(db, user.id!),
     ])
-    return c.json({ channels, playlists, videos })
+    const day = viewingDayAt(now(), settings.timeZone, settings)
+    const used = await restrictedUsage(db, user.id!, day.localDate)
+    return c.json({ channels, playlists, videos, watchTime: { remainingSeconds: Math.max(0, day.allowanceMinutes * 60 - used), locked: used >= day.allowanceMinutes * 60 } })
   })
 
   app.post('/api/child/playback-authorizations', async c => {
@@ -217,18 +221,87 @@ export function createApp(dependencies: AppDependencies = {}) {
     if (!direct && !channel && !playlist) {
       throw new HTTPException(403, { message: 'Video is not Approved Content' })
     }
+    const settings = await ensureTimeSettings(db, user.id!)
+    const day = viewingDayAt(now(), settings.timeZone, settings)
+    const usage = await restrictedUsage(db, user.id!, day.localDate)
+    const allowanceSeconds = day.allowanceMinutes * 60
+    const remainingSeconds = Math.max(0, allowanceSeconds - usage)
+    if (remainingSeconds === 0) throw new HTTPException(403, { message: 'Daily Allowance exhausted' })
+    const sessionId = crypto.randomUUID()
+    await db.insert(schema.playbackSessions).values({
+      id: sessionId, childId: user.id!, viewingDay: day.localDate, lastAcknowledgedAt: now(),
+    })
     return c.json({
       authorization: {
         videoId: input.videoId,
         source: direct ? 'video' : channel ? 'channel' : 'playlist',
         authorizedAt: now().toISOString(),
+        sessionId,
+        remainingSeconds,
       },
     })
+  })
+
+  app.get('/api/child/watch-time', async c => {
+    const user = requireRole(c.get('user'), 'child')
+    const db = drizzle(c.env.DB, { schema })
+    const settings = await ensureTimeSettings(db, user.id!)
+    const day = viewingDayAt(now(), settings.timeZone, settings)
+    const usedSeconds = await restrictedUsage(db, user.id!, day.localDate)
+    return c.json({ viewingDay: day.localDate, usedSeconds, remainingSeconds: Math.max(0, day.allowanceMinutes * 60 - usedSeconds), locked: usedSeconds >= day.allowanceMinutes * 60 })
+  })
+
+  app.post('/api/child/playback-authorizations/:id/heartbeats', async c => {
+    const user = requireRole(c.get('user'), 'child')
+    const input = z.object({ sequence: z.number().int().positive(), state: playbackState }).parse(await c.req.json())
+    const db = drizzle(c.env.DB, { schema })
+    const session = await db.query.playbackSessions.findFirst({ where: and(eq(schema.playbackSessions.id, c.req.param('id')), eq(schema.playbackSessions.childId, user.id!)) })
+    if (!session) throw new HTTPException(404, { message: 'Playback Authorization not found' })
+    const settings = await ensureTimeSettings(db, user.id!)
+    const acknowledgedAt = now()
+    const day = viewingDayAt(acknowledgedAt, settings.timeZone, settings)
+    if (input.sequence <= session.lastSequence) {
+      const usedSeconds = await restrictedUsage(db, user.id!, day.localDate)
+      return c.json({ accepted: false, sequence: session.lastSequence, remainingSeconds: Math.max(0, day.allowanceMinutes * 60 - usedSeconds), authorized: session.endedAt === null && usedSeconds < day.allowanceMinutes * 60 })
+    }
+    let usedSeconds = await restrictedUsage(db, user.id!, day.localDate)
+    if (!session.endedAt && session.lastState === 'playing') {
+      const elapsed = Math.max(0, Math.floor((acknowledgedAt.getTime() - session.lastAcknowledgedAt.getTime()) / 1000))
+      const charge = Math.min(elapsed, Math.max(0, day.allowanceMinutes * 60 - usedSeconds))
+      if (charge > 0) {
+        await db.insert(schema.dailyUsageSummaries).values({ childId: user.id!, viewingDay: day.localDate, restrictedSeconds: charge, updatedAt: acknowledgedAt }).onConflictDoUpdate({
+          target: [schema.dailyUsageSummaries.childId, schema.dailyUsageSummaries.viewingDay],
+          set: { restrictedSeconds: sql`${schema.dailyUsageSummaries.restrictedSeconds} + ${charge}`, updatedAt: acknowledgedAt },
+        })
+        usedSeconds += charge
+      }
+    }
+    const authorized = usedSeconds < day.allowanceMinutes * 60
+    await db.update(schema.playbackSessions).set({
+      viewingDay: day.localDate, lastSequence: input.sequence, lastState: authorized ? input.state : 'ended', lastAcknowledgedAt: acknowledgedAt,
+      endedAt: authorized && input.state !== 'ended' ? null : acknowledgedAt,
+    }).where(eq(schema.playbackSessions.id, session.id))
+    return c.json({ accepted: true, sequence: input.sequence, remainingSeconds: Math.max(0, day.allowanceMinutes * 60 - usedSeconds), authorized })
   })
 
   app.get('/api/child/channel/:id/videos', async c => channelOrPlaylist(c, 'channel'))
   app.get('/api/child/playlist/:id/videos', async c => channelOrPlaylist(c, 'playlist'))
   return app
+}
+
+async function ensureTimeSettings(db: ReturnType<typeof drizzle<typeof schema>>, childId: number) {
+  let settings = await db.query.childTimeSettings.findFirst({ where: eq(schema.childTimeSettings.childId, childId) })
+  if (!settings) {
+    await db.insert(schema.childTimeSettings).values({ childId }).onConflictDoNothing()
+    settings = await db.query.childTimeSettings.findFirst({ where: eq(schema.childTimeSettings.childId, childId) })
+  }
+  if (!settings) throw new HTTPException(500, { message: 'Unable to create time settings' })
+  return settings
+}
+
+async function restrictedUsage(db: ReturnType<typeof drizzle<typeof schema>>, childId: number, viewingDay: string) {
+  const summary = await db.query.dailyUsageSummaries.findFirst({ where: and(eq(schema.dailyUsageSummaries.childId, childId), eq(schema.dailyUsageSummaries.viewingDay, viewingDay)) })
+  return summary?.restrictedSeconds ?? 0
 }
 
 async function ownedChild(c: ApiContext) {

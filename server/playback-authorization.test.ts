@@ -37,6 +37,8 @@ class IsolatedD1 {
 async function fixture(identity: Identity, now = new Date('2026-08-16T12:00:00.000Z')) {
   const d1 = new IsolatedD1()
   await d1.exec(await readFile(new URL('../migrations/0001_initial.sql', import.meta.url), 'utf8'))
+  await d1.exec(await readFile(new URL('../migrations/0002_child_time_settings.sql', import.meta.url), 'utf8'))
+  await d1.exec(await readFile(new URL('../migrations/0003_restricted_watch_time.sql', import.meta.url), 'utf8'))
   d1.sqlite.exec(`
     INSERT INTO parents (id, email) VALUES (1, 'parent@example.com'), (2, 'other@example.com');
     INSERT INTO children (id, parent_id, email) VALUES (10, 1, 'child@example.com'), (20, 2, 'other-child@example.com');
@@ -60,7 +62,12 @@ test('authorizes direct Approved Content using a controllable clock', async () =
   d1.sqlite.exec("INSERT INTO allowed_videos (child_id, video_id, video_title, is_available) VALUES (10, 'direct', 'Direct', 1)")
   const response = await authorize('direct')
   assert.equal(response.status, 200)
-  assert.deepEqual(await response.json(), { authorization: { videoId: 'direct', source: 'video', authorizedAt: '2026-08-16T12:00:00.000Z' } })
+  const body = await response.json() as any
+  assert.equal(body.authorization.videoId, 'direct')
+  assert.equal(body.authorization.source, 'video')
+  assert.equal(body.authorization.authorizedAt, '2026-08-16T12:00:00.000Z')
+  assert.equal(body.authorization.remainingSeconds, 7200)
+  assert.match(body.authorization.sessionId, /^[0-9a-f-]{36}$/)
 })
 
 test('authorizes videos proven through an approved channel or playlist', async () => {

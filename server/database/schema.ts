@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 // Parents table
 export const parents = sqliteTable('parents', {
@@ -24,6 +24,25 @@ export const childTimeSettings = sqliteTable('child_time_settings', {
   weekendAllowanceMinutes: integer('weekend_allowance_minutes').notNull().default(120),
   safetyCapMinutes: integer('safety_cap_minutes').notNull().default(180),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+})
+
+export const dailyUsageSummaries = sqliteTable('daily_usage_summaries', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  childId: integer('child_id').notNull().references(() => children.id, { onDelete: 'cascade' }),
+  viewingDay: text('viewing_day').notNull(),
+  restrictedSeconds: integer('restricted_seconds').notNull().default(0),
+  exemptSeconds: integer('exempt_seconds').notNull().default(0),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+}, table => [uniqueIndex('daily_usage_child_day').on(table.childId, table.viewingDay)])
+
+export const playbackSessions = sqliteTable('playback_sessions', {
+  id: text('id').primaryKey(),
+  childId: integer('child_id').notNull().references(() => children.id, { onDelete: 'cascade' }),
+  viewingDay: text('viewing_day').notNull(),
+  lastSequence: integer('last_sequence').notNull().default(0),
+  lastState: text('last_state').notNull().default('paused'),
+  lastAcknowledgedAt: integer('last_acknowledged_at', { mode: 'timestamp' }).notNull(),
+  endedAt: integer('ended_at', { mode: 'timestamp' }),
 })
 
 // Allowed channels

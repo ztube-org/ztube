@@ -24,7 +24,7 @@ function formatDuration(seconds: number | null): string {
           :key="channel.id"
           :to="`/browse/channel/${channel.id}`"
           class="group"
-          :class="{ 'opacity-50 pointer-events-none': !channel.isAvailable }"
+          :class="{ 'opacity-50 pointer-events-none': !channel.isAvailable || data.watchTime?.locked }"
         >
           <div class="flex flex-col items-center text-center">
             <UAvatar
@@ -35,6 +35,7 @@ function formatDuration(seconds: number | null): string {
             />
             <p class="text-sm font-medium truncate w-full">{{ channel.channelTitle }}</p>
             <p v-if="!channel.isAvailable" class="text-xs text-red-500">Unavailable</p>
+            <p v-else-if="data.watchTime?.locked" class="text-xs text-amber-600">Daily Allowance used</p>
           </div>
         </NuxtLink>
       </div>
@@ -49,7 +50,7 @@ function formatDuration(seconds: number | null): string {
           :key="playlist.id"
           :to="`/browse/playlist/${playlist.id}`"
           class="group"
-          :class="{ 'opacity-50 pointer-events-none': !playlist.isAvailable }"
+          :class="{ 'opacity-50 pointer-events-none': !playlist.isAvailable || data.watchTime?.locked }"
         >
           <div class="relative">
             <img
@@ -63,6 +64,7 @@ function formatDuration(seconds: number | null): string {
           </div>
           <p class="mt-2 font-medium truncate">{{ playlist.playlistTitle }}</p>
           <p v-if="!playlist.isAvailable" class="text-xs text-red-500">Unavailable</p>
+          <p v-else-if="data.watchTime?.locked" class="text-xs text-amber-600">Daily Allowance used</p>
         </NuxtLink>
       </div>
     </section>
@@ -76,7 +78,7 @@ function formatDuration(seconds: number | null): string {
           :key="video.id"
           :to="`/watch?v=${video.videoId}`"
           class="group"
-          :class="{ 'opacity-50 pointer-events-none': !video.isAvailable }"
+          :class="{ 'opacity-50 pointer-events-none': !video.isAvailable || data.watchTime?.locked }"
         >
           <div class="relative">
             <img
@@ -91,6 +93,7 @@ function formatDuration(seconds: number | null): string {
           <p class="mt-2 font-medium line-clamp-2">{{ video.videoTitle }}</p>
           <p class="text-sm text-gray-500 truncate">{{ video.channelTitle }}</p>
           <p v-if="!video.isAvailable" class="text-xs text-red-500">Unavailable</p>
+          <p v-else-if="data.watchTime?.locked" class="text-xs text-amber-600">Daily Allowance used</p>
         </NuxtLink>
       </div>
     </section>

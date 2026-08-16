@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { apiFetch, useApi, useAuth } from '../../src/api'
-import { authorizeAndCreatePlayer, createYouTubePlayer, type YouTubePlayer } from '../../src/youtube-player'
+import { authorizeAndCreatePlayer, createPlaybackReporter, createYouTubePlayer, type PlaybackState, type YouTubePlayer } from '../../src/youtube-player'
 
 const route = useRoute()
 const videoId = route.query.v as string
@@ -33,21 +33,49 @@ function formatDuration(seconds: number | null): string {
 // YouTube iframe API for playback speed
 const player = ref<YouTubePlayer | null>(null)
 const playbackError = ref<string | null>(null)
+const remainingSeconds = ref<number | null>(null)
+let reporter: ReturnType<typeof createPlaybackReporter> | null = null
+
+const warning = computed(() => {
+  if (remainingSeconds.value === null) return null
+  if (remainingSeconds.value <= 0) return 'Today’s Daily Allowance is used up.'
+  if (remainingSeconds.value <= 60) return '1 minute remaining'
+  if (remainingSeconds.value <= 300) return '5 minutes remaining'
+  if (remainingSeconds.value <= 600) return '10 minutes remaining'
+  return null
+})
+
+function formatRemaining(seconds: number) {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+}
 
 onMounted(async () => {
   try {
+    let authorization!: { sessionId: string; remainingSeconds: number }
     player.value = await authorizeAndCreatePlayer(
       videoId,
-      async requestedVideoId => { await apiFetch('/api/child/playback-authorizations', { method: 'POST', body: { videoId: requestedVideoId } }) },
+      async requestedVideoId => {
+        const response = await apiFetch<{ authorization: { sessionId: string; remainingSeconds: number } }>('/api/child/playback-authorizations', { method: 'POST', body: { videoId: requestedVideoId } })
+        authorization = response.authorization
+      },
       () => createYouTubePlayer('youtube-player', {
         videoId,
         onReady: readyPlayer => readyPlayer.setPlaybackRate(playbackSpeed.value),
+        onStateChange: (state: PlaybackState) => reporter?.setState(state),
       }),
     )
+    reporter = createPlaybackReporter({
+      initialRemainingSeconds: authorization.remainingSeconds,
+      heartbeat: (sequence, state) => apiFetch(`/api/child/playback-authorizations/${authorization.sessionId}/heartbeats`, { method: 'POST', body: { sequence, state } }),
+      pause: () => player.value?.pauseVideo?.(),
+      onRemaining: seconds => { remainingSeconds.value = seconds },
+    })
   } catch (error) {
     playbackError.value = error instanceof Error ? error.message : 'Playback could not be authorized'
   }
 })
+
+onBeforeUnmount(() => reporter?.stop())
 
 watch(playbackSpeed, (speed) => {
   if (player.value?.setPlaybackRate) {
@@ -83,7 +111,12 @@ watch(playbackSpeed, (speed) => {
 
         <!-- Controls -->
         <div class="p-4 bg-gray-800">
-          <div class="flex items-center gap-4">
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <p v-if="remainingSeconds !== null" class="font-mono text-lg">{{ formatRemaining(remainingSeconds) }} remaining</p>
+              <p v-if="warning" class="text-amber-300 text-sm" role="alert">{{ warning }}</p>
+            </div>
+            <div class="flex items-center gap-4">
             <span class="text-sm text-gray-400">Speed:</span>
             <div class="flex gap-1">
               <UButton
@@ -96,6 +129,7 @@ watch(playbackSpeed, (speed) => {
               >
                 {{ speed }}x
               </UButton>
+            </div>
             </div>
           </div>
         </div>
