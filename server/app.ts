@@ -3,16 +3,16 @@ import { HTTPException } from 'hono/http-exception'
 import { and, count, eq, isNull, lt, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/d1'
 import { z } from 'zod'
-import * as schema from './database/schema'
-import { isValidTimeZone, viewingDayAt } from './utils/viewing-day'
-import { parseYouTubeUrl } from './utils/youtube'
+import * as schema from './database/schema.ts'
+import { isValidTimeZone, viewingDayAt } from './utils/viewing-day.ts'
+import { parseYouTubeUrl } from './utils/youtube.ts'
 import {
   fetchChannelMetadata,
   fetchChannelVideos,
   fetchPlaylistMetadata,
   fetchPlaylistVideos,
   fetchVideoMetadata,
-} from './utils/youtube-api'
+} from './utils/youtube-api.ts'
 
 type UserRole = 'superadmin' | 'parent' | 'child'
 type CurrentUser = { id: number | null; email: string; displayName: string | null; role: UserRole }
@@ -27,11 +27,18 @@ const timeSettingsInput = z.object({
   safetyCapMinutes: allowanceMinutes,
 })
 
-export function createApp() {
+export type AppDependencies = {
+  now?: () => Date
+  resolveUser?: (request: Request, env: Env) => Promise<CurrentUser>
+}
+
+export function createApp(dependencies: AppDependencies = {}) {
+  const now = dependencies.now ?? (() => new Date())
+  const userResolver = dependencies.resolveUser ?? resolveUser
   const app = new Hono<AppEnv>()
 
   app.use('/api/*', async (c, next) => {
-    c.set('user', await resolveUser(c.req.raw, c.env))
+    c.set('user', await userResolver(c.req.raw, c.env))
     await next()
   })
 
@@ -174,6 +181,49 @@ export function createApp() {
       db.query.allowedVideos.findMany({ where: eq(schema.allowedVideos.childId, user.id!) }),
     ])
     return c.json({ channels, playlists, videos })
+  })
+
+  app.post('/api/child/playback-authorizations', async c => {
+    const user = requireRole(c.get('user'), 'child')
+    const input = z.object({ videoId: z.string().trim().min(1).max(64) }).parse(await c.req.json())
+    const db = drizzle(c.env.DB, { schema })
+
+    const direct = await db.query.allowedVideos.findFirst({
+      where: and(
+        eq(schema.allowedVideos.childId, user.id!),
+        eq(schema.allowedVideos.videoId, input.videoId),
+        eq(schema.allowedVideos.isAvailable, true),
+      ),
+    })
+    const channel = direct ? null : await db.select({ id: schema.allowedChannels.id })
+      .from(schema.allowedChannels)
+      .innerJoin(schema.channelVideos, eq(schema.channelVideos.channelId, schema.allowedChannels.channelId))
+      .where(and(
+        eq(schema.allowedChannels.childId, user.id!),
+        eq(schema.allowedChannels.isAvailable, true),
+        eq(schema.channelVideos.videoId, input.videoId),
+      ))
+      .get()
+    const playlist = direct || channel ? null : await db.select({ id: schema.allowedPlaylists.id })
+      .from(schema.allowedPlaylists)
+      .innerJoin(schema.playlistVideos, eq(schema.playlistVideos.playlistId, schema.allowedPlaylists.playlistId))
+      .where(and(
+        eq(schema.allowedPlaylists.childId, user.id!),
+        eq(schema.allowedPlaylists.isAvailable, true),
+        eq(schema.playlistVideos.videoId, input.videoId),
+      ))
+      .get()
+
+    if (!direct && !channel && !playlist) {
+      throw new HTTPException(403, { message: 'Video is not Approved Content' })
+    }
+    return c.json({
+      authorization: {
+        videoId: input.videoId,
+        source: direct ? 'video' : channel ? 'channel' : 'playlist',
+        authorizedAt: now().toISOString(),
+      },
+    })
   })
 
   app.get('/api/child/channel/:id/videos', async c => channelOrPlaylist(c, 'channel'))

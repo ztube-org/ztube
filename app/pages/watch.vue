@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { useApi, useAuth } from '../../src/api'
+import { apiFetch, useApi, useAuth } from '../../src/api'
+import { authorizeAndCreatePlayer, createYouTubePlayer, type YouTubePlayer } from '../../src/youtube-player'
 
 const route = useRoute()
 const videoId = route.query.v as string
@@ -30,35 +31,21 @@ function formatDuration(seconds: number | null): string {
 }
 
 // YouTube iframe API for playback speed
-const player = ref<any>(null)
+const player = ref<YouTubePlayer | null>(null)
+const playbackError = ref<string | null>(null)
 
-onMounted(() => {
-  // Load YouTube iframe API
-  if (!(window as any).YT) {
-    const tag = document.createElement('script')
-    tag.src = 'https://www.youtube.com/iframe_api'
-    document.head.appendChild(tag)
-  }
-
-  ;(window as any).onYouTubeIframeAPIReady = () => {
-    player.value = new (window as any).YT.Player('youtube-player', {
+onMounted(async () => {
+  try {
+    player.value = await authorizeAndCreatePlayer(
       videoId,
-      playerVars: {
-        rel: 0,
-        modestbranding: 1,
-        autoplay: 1,
-      },
-      events: {
-        onReady: () => {
-          player.value.setPlaybackRate(playbackSpeed.value)
-        },
-      },
-    })
-  }
-
-  // If API already loaded
-  if ((window as any).YT?.Player) {
-    ;(window as any).onYouTubeIframeAPIReady()
+      async requestedVideoId => { await apiFetch('/api/child/playback-authorizations', { method: 'POST', body: { videoId: requestedVideoId } }) },
+      () => createYouTubePlayer('youtube-player', {
+        videoId,
+        onReady: readyPlayer => readyPlayer.setPlaybackRate(playbackSpeed.value),
+      }),
+    )
+  } catch (error) {
+    playbackError.value = error instanceof Error ? error.message : 'Playback could not be authorized'
   }
 })
 
@@ -88,7 +75,10 @@ watch(playbackSpeed, (speed) => {
       <div :class="playlistData.data.value ? 'flex-1' : 'w-full'">
         <!-- Video Player -->
         <div class="aspect-video bg-black">
-          <div id="youtube-player" class="w-full h-full"></div>
+          <div v-if="!playbackError" id="youtube-player" class="w-full h-full"></div>
+          <div v-else class="h-full flex items-center justify-center p-6 text-center text-red-300">
+            {{ playbackError }}
+          </div>
         </div>
 
         <!-- Controls -->
