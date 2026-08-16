@@ -4,6 +4,7 @@ import { and, count, eq, isNull, lt, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/d1'
 import { z } from 'zod'
 import * as schema from './database/schema'
+import { isValidTimeZone, viewingDayAt } from './utils/viewing-day'
 import { parseYouTubeUrl } from './utils/youtube'
 import {
   fetchChannelMetadata,
@@ -18,6 +19,13 @@ type CurrentUser = { id: number | null; email: string; displayName: string | nul
 type AppEnv = { Bindings: Env; Variables: { user: CurrentUser } }
 type ApiContext = Context<AppEnv>
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000
+const allowanceMinutes = z.number().int().min(0).max(1440).refine(value => value % 15 === 0, 'Must be a 15-minute increment')
+const timeSettingsInput = z.object({
+  timeZone: z.string().trim().min(1).refine(isValidTimeZone, 'Invalid IANA time zone'),
+  weekdayAllowanceMinutes: allowanceMinutes,
+  weekendAllowanceMinutes: allowanceMinutes,
+  safetyCapMinutes: allowanceMinutes,
+})
 
 export function createApp() {
   const app = new Hono<AppEnv>()
@@ -64,7 +72,11 @@ export function createApp() {
 
   app.post('/api/parent/children', async c => {
     const user = requireRole(c.get('user'), 'parent')
-    const input = z.object({ email: z.string().trim().toLowerCase().email(), displayName: z.string().trim().max(100).optional() }).parse(await c.req.json())
+    const input = z.object({
+      email: z.string().trim().toLowerCase().email(),
+      displayName: z.string().trim().max(100).optional(),
+      timeZone: z.string().trim().refine(isValidTimeZone, 'Invalid IANA time zone').optional(),
+    }).parse(await c.req.json())
     const db = drizzle(c.env.DB, { schema })
     const [child, parent] = await Promise.all([
       db.query.children.findFirst({ where: eq(schema.children.email, input.email) }),
@@ -72,7 +84,30 @@ export function createApp() {
     ])
     if (child || parent) throw new HTTPException(400, { message: 'This Google account already has a ZTube profile' })
     const [created] = await db.insert(schema.children).values({ parentId: user.id!, email: input.email, displayName: input.displayName || null }).returning()
+    await db.insert(schema.childTimeSettings).values({ childId: created.id, timeZone: input.timeZone ?? 'UTC' })
     return c.json({ id: created.id, email: created.email, displayName: created.displayName }, 201)
+  })
+
+  app.get('/api/parent/children/:id/time-settings', async c => {
+    const { db, childId } = await ownedChild(c)
+    let settings = await db.query.childTimeSettings.findFirst({ where: eq(schema.childTimeSettings.childId, childId) })
+    if (!settings) {
+      await db.insert(schema.childTimeSettings).values({ childId }).onConflictDoNothing()
+      settings = await db.query.childTimeSettings.findFirst({ where: eq(schema.childTimeSettings.childId, childId) })
+    }
+    if (!settings) throw new HTTPException(500, { message: 'Unable to create time settings' })
+    return c.json({ settings, viewingDay: viewingDayAt(new Date(), settings.timeZone, settings) })
+  })
+
+  app.put('/api/parent/children/:id/time-settings', async c => {
+    const { db, childId } = await ownedChild(c)
+    const input = timeSettingsInput.parse(await c.req.json())
+    await db.insert(schema.childTimeSettings).values({ childId, ...input, updatedAt: new Date() }).onConflictDoUpdate({
+      target: schema.childTimeSettings.childId,
+      set: { ...input, updatedAt: new Date() },
+    })
+    const settings = await db.query.childTimeSettings.findFirst({ where: eq(schema.childTimeSettings.childId, childId) })
+    return c.json({ settings, viewingDay: viewingDayAt(new Date(), input.timeZone, input) })
   })
 
   app.get('/api/parent/children/:id/content', async c => {
@@ -144,6 +179,15 @@ export function createApp() {
   app.get('/api/child/channel/:id/videos', async c => channelOrPlaylist(c, 'channel'))
   app.get('/api/child/playlist/:id/videos', async c => channelOrPlaylist(c, 'playlist'))
   return app
+}
+
+async function ownedChild(c: ApiContext) {
+  const user = requireRole(c.get('user'), 'parent')
+  const childId = numericId(c.req.param('id'))
+  const db = drizzle(c.env.DB, { schema })
+  const child = await db.query.children.findFirst({ where: and(eq(schema.children.id, childId), eq(schema.children.parentId, user.id!)) })
+  if (!child) throw new HTTPException(404, { message: 'Child not found' })
+  return { db, childId, child }
 }
 
 async function channelOrPlaylist(c: ApiContext, kind: 'channel' | 'playlist') {

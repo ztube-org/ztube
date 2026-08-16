@@ -8,6 +8,7 @@ const showCreateModal = ref(false)
 const createForm = reactive({
   email: '',
   displayName: '',
+  timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
 })
 const createError = ref('')
 const createLoading = ref(false)

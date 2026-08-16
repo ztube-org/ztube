@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { apiFetch, useApi } from '../../../../../src/api'
 
@@ -7,6 +7,43 @@ const route = useRoute()
 const childId = parseInt(route.params.id as string)
 
 const { data, refresh } = useApi<any>(`/api/parent/children/${childId}/content`)
+const { data: timeData, refresh: refreshTimeSettings } = useApi<any>(`/api/parent/children/${childId}/time-settings`)
+
+const detectedTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+const timeForm = reactive({
+  timeZone: detectedTimeZone,
+  weekdayAllowanceMinutes: 60,
+  weekendAllowanceMinutes: 120,
+  safetyCapMinutes: 180,
+})
+const timeSaving = ref(false)
+const timeError = ref('')
+const timeSaved = ref(false)
+const allowanceOptions = Array.from({ length: 97 }, (_, index) => ({ label: `${index * 15} minutes`, value: index * 15 }))
+const timeZoneOptions = computed(() => {
+  const supportedValuesOf = (Intl as typeof Intl & { supportedValuesOf?: (key: 'timeZone') => string[] }).supportedValuesOf
+  const zones = supportedValuesOf?.('timeZone') ?? ['UTC', detectedTimeZone]
+  return [...new Set(zones)].map(value => ({ label: value.replaceAll('_', ' '), value }))
+})
+
+watch(() => timeData.value?.settings, (settings) => {
+  if (settings) Object.assign(timeForm, settings)
+}, { immediate: true })
+
+async function saveTimeSettings() {
+  timeSaving.value = true
+  timeError.value = ''
+  timeSaved.value = false
+  try {
+    await apiFetch(`/api/parent/children/${childId}/time-settings`, { method: 'PUT', body: timeForm })
+    await refreshTimeSettings()
+    timeSaved.value = true
+  } catch (error) {
+    timeError.value = error instanceof Error ? error.message : 'Failed to save time settings'
+  } finally {
+    timeSaving.value = false
+  }
+}
 
 const activeTab = ref('channels')
 const addUrl = ref('')
@@ -60,6 +97,40 @@ function formatDuration(seconds: number | null): string {
         {{ data?.child?.displayName || data?.child?.email }}'s Content
       </h1>
     </div>
+
+    <UCard class="mb-8">
+      <template #header>
+        <div>
+          <h2 class="text-lg font-semibold">Viewing allowances</h2>
+          <p class="text-sm text-gray-500">Allowances reset at midnight in this Child's fixed time zone.</p>
+        </div>
+      </template>
+      <form class="grid gap-4 md:grid-cols-2" @submit.prevent="saveTimeSettings">
+        <UFormField label="Time zone" class="md:col-span-2">
+          <USelect v-model="timeForm.timeZone" :items="timeZoneOptions" class="w-full" />
+          <template #hint>Initially suggested from this browser: {{ detectedTimeZone }}</template>
+        </UFormField>
+        <UFormField label="Weekday Daily Allowance">
+          <USelect v-model="timeForm.weekdayAllowanceMinutes" :items="allowanceOptions" class="w-full" />
+        </UFormField>
+        <UFormField label="Weekend Daily Allowance">
+          <USelect v-model="timeForm.weekendAllowanceMinutes" :items="allowanceOptions" class="w-full" />
+        </UFormField>
+        <UFormField label="Allowance-exempt Safety Cap">
+          <USelect v-model="timeForm.safetyCapMinutes" :items="allowanceOptions" class="w-full" />
+        </UFormField>
+        <div class="flex items-end justify-end">
+          <UButton type="submit" :loading="timeSaving">Save allowances</UButton>
+        </div>
+        <UAlert v-if="timeError" color="red" :title="timeError" class="md:col-span-2" />
+        <UAlert v-else-if="timeSaved" color="green" title="Viewing allowances saved" class="md:col-span-2" />
+        <p v-if="timeData?.viewingDay" class="text-sm text-gray-500 md:col-span-2">
+          Current Viewing Day: {{ timeData.viewingDay.localDate }} ·
+          {{ timeData.viewingDay.isWeekend ? 'weekend' : 'weekday' }} allowance:
+          {{ timeData.viewingDay.allowanceMinutes }} minutes
+        </p>
+      </form>
+    </UCard>
 
     <!-- Add Content Form -->
     <UCard class="mb-8">

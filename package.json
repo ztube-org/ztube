@@ -12,6 +12,7 @@
     "cf:typegen": "wrangler types --env-file wrangler-types.env",
     "cf:typecheck": "wrangler types --check --env-file wrangler-types.env",
     "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.worker.json",
+    "test": "node --test --experimental-strip-types 'server/**/*.test.ts'",
     "lint": "oxlint .",
     "check": "npm run lint && npm run cf:typecheck && npm run typecheck && npm run build",
     "deploy": "npm run check && wrangler deploy"

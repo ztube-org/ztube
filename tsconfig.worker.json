@@ -7,5 +7,6 @@
     "skipLibCheck": true,
     "types": ["./worker-configuration.d.ts"]
   },
-  "include": ["server/**/*.ts", "worker-configuration.d.ts"]
+  "include": ["server/**/*.ts", "worker-configuration.d.ts"],
+  "exclude": ["server/**/*.test.ts"]
 }

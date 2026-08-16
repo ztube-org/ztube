@@ -17,6 +17,15 @@ export const children = sqliteTable('children', {
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 })
 
+export const childTimeSettings = sqliteTable('child_time_settings', {
+  childId: integer('child_id').primaryKey().references(() => children.id, { onDelete: 'cascade' }),
+  timeZone: text('time_zone').notNull().default('UTC'),
+  weekdayAllowanceMinutes: integer('weekday_allowance_minutes').notNull().default(60),
+  weekendAllowanceMinutes: integer('weekend_allowance_minutes').notNull().default(120),
+  safetyCapMinutes: integer('safety_cap_minutes').notNull().default(180),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+})
+
 // Allowed channels
 export const allowedChannels = sqliteTable('allowed_channels', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -87,6 +96,7 @@ export type Parent = typeof parents.$inferSelect
 export type NewParent = typeof parents.$inferInsert
 export type Child = typeof children.$inferSelect
 export type NewChild = typeof children.$inferInsert
+export type ChildTimeSettings = typeof childTimeSettings.$inferSelect
 export type AllowedChannel = typeof allowedChannels.$inferSelect
 export type AllowedPlaylist = typeof allowedPlaylists.$inferSelect
 export type AllowedVideo = typeof allowedVideos.$inferSelect
