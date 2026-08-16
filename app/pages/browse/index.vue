@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useApi } from '../../../src/api'
+import { contentStatus } from '../../../src/content-rule-ui'
 
 const { data } = useApi<any>('/api/child/browse')
 
@@ -8,6 +9,15 @@ function formatDuration(seconds: number | null): string {
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function bucketFor(item: any) {
+  return data.value?.watchTime ? contentStatus(item.contentRule, data.value.watchTime) : null
+}
+
+function ruleLabel(item: any) {
+  if (item.contentRule !== 'exempt') return null
+  return data.value?.watchTime ? contentStatus(item.contentRule, data.value.watchTime).label : null
 }
 </script>
 
@@ -24,7 +34,7 @@ function formatDuration(seconds: number | null): string {
           :key="channel.id"
           :to="`/browse/channel/${channel.id}`"
           class="group"
-          :class="{ 'opacity-50 pointer-events-none': !channel.isAvailable || data.watchTime?.locked }"
+          :class="{ 'opacity-50 pointer-events-none': !channel.isAvailable || bucketFor(channel)?.locked }"
         >
           <div class="flex flex-col items-center text-center">
             <UAvatar
@@ -35,7 +45,8 @@ function formatDuration(seconds: number | null): string {
             />
             <p class="text-sm font-medium truncate w-full">{{ channel.channelTitle }}</p>
             <p v-if="!channel.isAvailable" class="text-xs text-red-500">Unavailable</p>
-            <p v-else-if="data.watchTime?.locked" class="text-xs text-amber-600">Daily Allowance used</p>
+            <p v-else-if="bucketFor(channel)?.locked" class="text-xs text-amber-600">{{ channel.contentRule === 'exempt' ? 'Safety Cap used' : 'Daily Allowance used' }}</p>
+            <p v-else-if="ruleLabel(channel)" class="text-xs text-green-600">{{ ruleLabel(channel) }}</p>
           </div>
         </NuxtLink>
       </div>
@@ -50,7 +61,7 @@ function formatDuration(seconds: number | null): string {
           :key="playlist.id"
           :to="`/browse/playlist/${playlist.id}`"
           class="group"
-          :class="{ 'opacity-50 pointer-events-none': !playlist.isAvailable || data.watchTime?.locked }"
+          :class="{ 'opacity-50 pointer-events-none': !playlist.isAvailable || bucketFor(playlist)?.locked }"
         >
           <div class="relative">
             <img
@@ -64,7 +75,8 @@ function formatDuration(seconds: number | null): string {
           </div>
           <p class="mt-2 font-medium truncate">{{ playlist.playlistTitle }}</p>
           <p v-if="!playlist.isAvailable" class="text-xs text-red-500">Unavailable</p>
-          <p v-else-if="data.watchTime?.locked" class="text-xs text-amber-600">Daily Allowance used</p>
+          <p v-else-if="bucketFor(playlist)?.locked" class="text-xs text-amber-600">{{ playlist.contentRule === 'exempt' ? 'Safety Cap used' : 'Daily Allowance used' }}</p>
+          <p v-else-if="ruleLabel(playlist)" class="text-xs text-green-600">{{ ruleLabel(playlist) }}</p>
         </NuxtLink>
       </div>
     </section>
@@ -78,7 +90,7 @@ function formatDuration(seconds: number | null): string {
           :key="video.id"
           :to="`/watch?v=${video.videoId}`"
           class="group"
-          :class="{ 'opacity-50 pointer-events-none': !video.isAvailable || data.watchTime?.locked }"
+          :class="{ 'opacity-50 pointer-events-none': !video.isAvailable || bucketFor(video)?.locked }"
         >
           <div class="relative">
             <img
@@ -93,7 +105,8 @@ function formatDuration(seconds: number | null): string {
           <p class="mt-2 font-medium line-clamp-2">{{ video.videoTitle }}</p>
           <p class="text-sm text-gray-500 truncate">{{ video.channelTitle }}</p>
           <p v-if="!video.isAvailable" class="text-xs text-red-500">Unavailable</p>
-          <p v-else-if="data.watchTime?.locked" class="text-xs text-amber-600">Daily Allowance used</p>
+          <p v-else-if="bucketFor(video)?.locked" class="text-xs text-amber-600">{{ video.contentRule === 'exempt' ? 'Safety Cap used' : 'Daily Allowance used' }}</p>
+          <p v-else-if="ruleLabel(video)" class="text-xs text-green-600">{{ ruleLabel(video) }}</p>
         </NuxtLink>
       </div>
     </section>

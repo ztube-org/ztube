@@ -43,6 +43,7 @@ export const playbackSessions = sqliteTable('playback_sessions', {
   lastState: text('last_state').notNull().default('paused'),
   lastAcknowledgedAt: integer('last_acknowledged_at', { mode: 'timestamp' }).notNull(),
   leaseExpiresAt: integer('lease_expires_at', { mode: 'timestamp' }).notNull(),
+  usageBucket: text('usage_bucket').notNull().default('restricted'),
   endedAt: integer('ended_at', { mode: 'timestamp' }),
 })
 
@@ -56,6 +57,7 @@ export const allowedChannels = sqliteTable('allowed_channels', {
   channelThumbnail: text('channel_thumbnail'),
   lastFetchedAt: integer('last_fetched_at', { mode: 'timestamp' }),
   isAvailable: integer('is_available', { mode: 'boolean' }).default(true),
+  contentRule: text('content_rule').notNull().default('restricted'),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 })
 
@@ -68,6 +70,7 @@ export const allowedPlaylists = sqliteTable('allowed_playlists', {
   playlistThumbnail: text('playlist_thumbnail'),
   lastFetchedAt: integer('last_fetched_at', { mode: 'timestamp' }),
   isAvailable: integer('is_available', { mode: 'boolean' }).default(true),
+  contentRule: text('content_rule').notNull().default('restricted'),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 })
 
@@ -82,6 +85,7 @@ export const allowedVideos = sqliteTable('allowed_videos', {
   channelTitle: text('channel_title'),
   lastFetchedAt: integer('last_fetched_at', { mode: 'timestamp' }),
   isAvailable: integer('is_available', { mode: 'boolean' }).default(true),
+  contentRule: text('content_rule').notNull().default('restricted'),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 })
 

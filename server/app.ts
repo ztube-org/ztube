@@ -27,6 +27,7 @@ const timeSettingsInput = z.object({
   safetyCapMinutes: allowanceMinutes,
 })
 const playbackState = z.enum(['playing', 'paused', 'buffering', 'ended'])
+const contentRule = z.enum(['restricted', 'exempt'])
 const HEARTBEAT_INTERVAL_SECONDS = 15
 const PLAYBACK_LEASE_SECONDS = 60
 
@@ -134,6 +135,19 @@ export function createApp(dependencies: AppDependencies = {}) {
     return c.json({ child: { id: child.id, email: child.email, displayName: child.displayName }, channels, playlists, videos })
   })
 
+  app.put('/api/parent/children/:id/content/:type/:contentId/rule', async c => {
+    const { db, childId } = await ownedChild(c)
+    const type = z.enum(['channel', 'playlist', 'video']).parse(c.req.param('type'))
+    const contentId = numericId(c.req.param('contentId'))
+    const input = z.object({ rule: contentRule }).parse(await c.req.json())
+    const table = type === 'channel' ? schema.allowedChannels : type === 'playlist' ? schema.allowedPlaylists : schema.allowedVideos
+    const updated = await db.update(table).set({ contentRule: input.rule })
+      .where(and(eq(table.id, contentId), eq(table.childId, childId)))
+      .returning({ id: table.id, contentRule: table.contentRule })
+    if (!updated.length) throw new HTTPException(404, { message: 'Approved Content not found' })
+    return c.json({ content: updated[0] })
+  })
+
   app.post('/api/parent/content/add', async c => {
     const user = requireRole(c.get('user'), 'parent')
     const input = z.object({ childId: z.number().int().positive(), url: z.string().url() }).parse(await c.req.json())
@@ -185,8 +199,11 @@ export function createApp(dependencies: AppDependencies = {}) {
       ensureTimeSettings(db, user.id!),
     ])
     const day = viewingDayAt(now(), settings.timeZone, settings)
-    const used = await restrictedUsage(db, user.id!, day.localDate)
-    return c.json({ channels, playlists, videos, watchTime: { remainingSeconds: Math.max(0, day.allowanceMinutes * 60 - used), locked: used >= day.allowanceMinutes * 60 } })
+    const usage = await dailyUsage(db, user.id!, day.localDate)
+    return c.json({
+      channels, playlists, videos,
+      watchTime: watchTimeStatus(day.allowanceMinutes * 60, settings.safetyCapMinutes * 60, usage),
+    })
   })
 
   app.post('/api/child/playback-authorizations', async c => {
@@ -201,7 +218,7 @@ export function createApp(dependencies: AppDependencies = {}) {
         eq(schema.allowedVideos.isAvailable, true),
       ),
     })
-    const channel = direct ? null : await db.select({ id: schema.allowedChannels.id })
+    const channel = direct ? null : await db.select({ id: schema.allowedChannels.id, contentRule: schema.allowedChannels.contentRule })
       .from(schema.allowedChannels)
       .innerJoin(schema.channelVideos, eq(schema.channelVideos.channelId, schema.allowedChannels.channelId))
       .where(and(
@@ -210,7 +227,7 @@ export function createApp(dependencies: AppDependencies = {}) {
         eq(schema.channelVideos.videoId, input.videoId),
       ))
       .get()
-    const playlist = direct || channel ? null : await db.select({ id: schema.allowedPlaylists.id })
+    const playlist = direct || channel ? null : await db.select({ id: schema.allowedPlaylists.id, contentRule: schema.allowedPlaylists.contentRule })
       .from(schema.allowedPlaylists)
       .innerJoin(schema.playlistVideos, eq(schema.playlistVideos.playlistId, schema.allowedPlaylists.playlistId))
       .where(and(
@@ -225,23 +242,26 @@ export function createApp(dependencies: AppDependencies = {}) {
     }
     const settings = await ensureTimeSettings(db, user.id!)
     const day = viewingDayAt(now(), settings.timeZone, settings)
-    const usage = await restrictedUsage(db, user.id!, day.localDate)
-    const allowanceSeconds = day.allowanceMinutes * 60
-    const remainingSeconds = Math.max(0, allowanceSeconds - usage)
-    if (remainingSeconds === 0) throw new HTTPException(403, { message: 'Daily Allowance exhausted' })
+    const usageBucket = (direct?.contentRule ?? channel?.contentRule ?? playlist?.contentRule) === 'exempt' ? 'exempt' : 'restricted'
+    const usage = await dailyUsage(db, user.id!, day.localDate)
+    const limitSeconds = (usageBucket === 'exempt' ? settings.safetyCapMinutes : day.allowanceMinutes) * 60
+    const usedSeconds = usageBucket === 'exempt' ? usage.exemptSeconds : usage.restrictedSeconds
+    const remainingSeconds = Math.max(0, limitSeconds - usedSeconds)
+    if (remainingSeconds === 0) throw new HTTPException(403, { message: usageBucket === 'exempt' ? 'Safety Cap exhausted' : 'Daily Allowance exhausted' })
     const sessionId = crypto.randomUUID()
     const authorizedAt = now()
     const leaseExpiresAt = new Date(authorizedAt.getTime() + PLAYBACK_LEASE_SECONDS * 1000)
     await c.env.DB.batch([
       c.env.DB.prepare(`UPDATE playback_sessions SET ended_at = ?, last_state = 'ended' WHERE child_id = ? AND ended_at IS NULL`).bind(epochSeconds(authorizedAt), user.id!),
-      c.env.DB.prepare(`INSERT INTO playback_sessions (id, child_id, viewing_day, last_sequence, last_state, last_acknowledged_at, lease_expires_at) VALUES (?, ?, ?, 0, 'paused', ?, ?)`).bind(
-        sessionId, user.id!, day.localDate, epochSeconds(authorizedAt), epochSeconds(leaseExpiresAt),
+      c.env.DB.prepare(`INSERT INTO playback_sessions (id, child_id, viewing_day, last_sequence, last_state, last_acknowledged_at, lease_expires_at, usage_bucket) VALUES (?, ?, ?, 0, 'paused', ?, ?, ?)`).bind(
+        sessionId, user.id!, day.localDate, epochSeconds(authorizedAt), epochSeconds(leaseExpiresAt), usageBucket,
       ),
     ])
     return c.json({
       authorization: {
         videoId: input.videoId,
         source: direct ? 'video' : channel ? 'channel' : 'playlist',
+        usageBucket,
         authorizedAt: authorizedAt.toISOString(),
         sessionId,
         remainingSeconds,
@@ -256,8 +276,8 @@ export function createApp(dependencies: AppDependencies = {}) {
     const db = drizzle(c.env.DB, { schema })
     const settings = await ensureTimeSettings(db, user.id!)
     const day = viewingDayAt(now(), settings.timeZone, settings)
-    const usedSeconds = await restrictedUsage(db, user.id!, day.localDate)
-    return c.json({ viewingDay: day.localDate, usedSeconds, remainingSeconds: Math.max(0, day.allowanceMinutes * 60 - usedSeconds), locked: usedSeconds >= day.allowanceMinutes * 60 })
+    const usage = await dailyUsage(db, user.id!, day.localDate)
+    return c.json({ viewingDay: day.localDate, ...watchTimeStatus(day.allowanceMinutes * 60, settings.safetyCapMinutes * 60, usage) })
   })
 
   app.post('/api/child/playback-authorizations/:id/heartbeats', async c => {
@@ -270,26 +290,35 @@ export function createApp(dependencies: AppDependencies = {}) {
     const acknowledgedAt = now()
     const day = viewingDayAt(acknowledgedAt, settings.timeZone, settings)
     if (input.sequence <= session.lastSequence || session.endedAt) {
-      const usedSeconds = await restrictedUsage(db, user.id!, day.localDate)
-      return c.json({ accepted: false, sequence: session.lastSequence, remainingSeconds: Math.max(0, day.allowanceMinutes * 60 - usedSeconds), authorized: false })
+      const usage = await dailyUsage(db, user.id!, day.localDate)
+      const limitSeconds = (session.usageBucket === 'exempt' ? settings.safetyCapMinutes : day.allowanceMinutes) * 60
+      const usedSeconds = session.usageBucket === 'exempt' ? usage.exemptSeconds : usage.restrictedSeconds
+      return c.json({ accepted: false, sequence: session.lastSequence, remainingSeconds: Math.max(0, limitSeconds - usedSeconds), authorized: false })
     }
-    const allowanceSeconds = day.allowanceMinutes * 60
+    const limitSeconds = (session.usageBucket === 'exempt' ? settings.safetyCapMinutes : day.allowanceMinutes) * 60
     const acknowledgedEpoch = epochSeconds(acknowledgedAt)
     const nextLeaseEpoch = acknowledgedEpoch + PLAYBACK_LEASE_SECONDS
     const results = await c.env.DB.batch([
       c.env.DB.prepare(`
         INSERT INTO daily_usage_summaries (child_id, viewing_day, restricted_seconds, exempt_seconds, updated_at)
         SELECT child_id, ?,
-          MIN(
+          CASE WHEN usage_bucket = 'restricted' THEN MIN(
             MAX(0, MIN(?, lease_expires_at) - last_acknowledged_at),
             MAX(0, ? - COALESCE((SELECT restricted_seconds FROM daily_usage_summaries WHERE child_id = ? AND viewing_day = ?), 0))
-          ), 0, ?
+          ) ELSE 0 END,
+          CASE WHEN usage_bucket = 'exempt' THEN MIN(
+            MAX(0, MIN(?, lease_expires_at) - last_acknowledged_at),
+            MAX(0, ? - COALESCE((SELECT exempt_seconds FROM daily_usage_summaries WHERE child_id = ? AND viewing_day = ?), 0))
+          ) ELSE 0 END, ?
         FROM playback_sessions
         WHERE id = ? AND child_id = ? AND ended_at IS NULL AND last_sequence < ? AND last_state = 'playing'
         ON CONFLICT(child_id, viewing_day) DO UPDATE SET
-          restricted_seconds = MIN(?, daily_usage_summaries.restricted_seconds + excluded.restricted_seconds),
+          restricted_seconds = CASE WHEN excluded.restricted_seconds > 0 THEN MIN(?, daily_usage_summaries.restricted_seconds + excluded.restricted_seconds) ELSE daily_usage_summaries.restricted_seconds END,
+          exempt_seconds = CASE WHEN excluded.exempt_seconds > 0 THEN MIN(?, daily_usage_summaries.exempt_seconds + excluded.exempt_seconds) ELSE daily_usage_summaries.exempt_seconds END,
           updated_at = excluded.updated_at
-      `).bind(day.localDate, acknowledgedEpoch, allowanceSeconds, user.id!, day.localDate, acknowledgedEpoch, session.id, user.id!, input.sequence, allowanceSeconds),
+      `).bind(day.localDate, acknowledgedEpoch, limitSeconds, user.id!, day.localDate,
+        acknowledgedEpoch, limitSeconds, user.id!, day.localDate, acknowledgedEpoch,
+        session.id, user.id!, input.sequence, limitSeconds, limitSeconds),
       c.env.DB.prepare(`
         UPDATE playback_sessions SET
           viewing_day = ?, last_sequence = ?, last_acknowledged_at = ?,
@@ -302,18 +331,19 @@ export function createApp(dependencies: AppDependencies = {}) {
         session.id, user.id!, input.sequence),
     ])
     const accepted = Number(results[1].meta.changes ?? 0) > 0
-    const [updatedSession, usedSeconds] = await Promise.all([
+    const [updatedSession, usage] = await Promise.all([
       db.query.playbackSessions.findFirst({ where: eq(schema.playbackSessions.id, session.id) }),
-      restrictedUsage(db, user.id!, day.localDate),
+      dailyUsage(db, user.id!, day.localDate),
     ])
-    const authorized = accepted && updatedSession?.endedAt === null && usedSeconds < allowanceSeconds
+    const usedSeconds = session.usageBucket === 'exempt' ? usage.exemptSeconds : usage.restrictedSeconds
+    const authorized = accepted && updatedSession?.endedAt === null && usedSeconds < limitSeconds
     if (accepted && !authorized && updatedSession?.endedAt === null) {
       await db.update(schema.playbackSessions).set({ lastState: 'ended', endedAt: acknowledgedAt }).where(and(eq(schema.playbackSessions.id, session.id), isNull(schema.playbackSessions.endedAt)))
     }
     return c.json({
       accepted,
       sequence: updatedSession?.lastSequence ?? session.lastSequence,
-      remainingSeconds: Math.max(0, allowanceSeconds - usedSeconds),
+      remainingSeconds: Math.max(0, limitSeconds - usedSeconds),
       authorized,
       leaseExpiresAt: authorized ? updatedSession?.leaseExpiresAt.toISOString() : null,
     })
@@ -334,9 +364,27 @@ async function ensureTimeSettings(db: ReturnType<typeof drizzle<typeof schema>>,
   return settings
 }
 
-async function restrictedUsage(db: ReturnType<typeof drizzle<typeof schema>>, childId: number, viewingDay: string) {
+async function dailyUsage(db: ReturnType<typeof drizzle<typeof schema>>, childId: number, viewingDay: string) {
   const summary = await db.query.dailyUsageSummaries.findFirst({ where: and(eq(schema.dailyUsageSummaries.childId, childId), eq(schema.dailyUsageSummaries.viewingDay, viewingDay)) })
-  return summary?.restrictedSeconds ?? 0
+  return { restrictedSeconds: summary?.restrictedSeconds ?? 0, exemptSeconds: summary?.exemptSeconds ?? 0 }
+}
+
+function watchTimeStatus(allowanceSeconds: number, safetyCapSeconds: number, usage: { restrictedSeconds: number; exemptSeconds: number }) {
+  return {
+    usedSeconds: usage.restrictedSeconds,
+    remainingSeconds: Math.max(0, allowanceSeconds - usage.restrictedSeconds),
+    locked: usage.restrictedSeconds >= allowanceSeconds,
+    restricted: {
+      usedSeconds: usage.restrictedSeconds,
+      remainingSeconds: Math.max(0, allowanceSeconds - usage.restrictedSeconds),
+      locked: usage.restrictedSeconds >= allowanceSeconds,
+    },
+    exempt: {
+      usedSeconds: usage.exemptSeconds,
+      remainingSeconds: Math.max(0, safetyCapSeconds - usage.exemptSeconds),
+      locked: usage.exemptSeconds >= safetyCapSeconds,
+    },
+  }
 }
 
 async function ownedChild(c: ApiContext) {
@@ -359,7 +407,7 @@ async function channelOrPlaylist(c: ApiContext, kind: 'channel' | 'playlist') {
     if (await claimRefresh(db, 'channel', item.id, item.lastFetchedAt, videos[0]?.fetchedAt)) {
       c.executionCtx.waitUntil(refreshVideos(c.env, kind, id, item.channelId, item.uploadsPlaylistId))
     }
-    return c.json({ channel: { id: item.id, channelId: item.channelId, title: item.channelTitle, thumbnail: item.channelThumbnail, isAvailable: item.isAvailable }, videos })
+    return c.json({ channel: { id: item.id, channelId: item.channelId, title: item.channelTitle, thumbnail: item.channelThumbnail, isAvailable: item.isAvailable, contentRule: item.contentRule }, videos })
   }
   const item = await db.query.allowedPlaylists.findFirst({ where: and(eq(schema.allowedPlaylists.id, id), eq(schema.allowedPlaylists.childId, user.id!)) })
   if (!item) throw new HTTPException(404, { message: 'playlist not found' })
@@ -367,7 +415,7 @@ async function channelOrPlaylist(c: ApiContext, kind: 'channel' | 'playlist') {
   if (await claimRefresh(db, 'playlist', item.id, item.lastFetchedAt, videos[0]?.fetchedAt)) {
     c.executionCtx.waitUntil(refreshVideos(c.env, kind, id, item.playlistId))
   }
-  return c.json({ playlist: { id: item.id, playlistId: item.playlistId, title: item.playlistTitle, thumbnail: item.playlistThumbnail, isAvailable: item.isAvailable }, videos })
+  return c.json({ playlist: { id: item.id, playlistId: item.playlistId, title: item.playlistTitle, thumbnail: item.playlistThumbnail, isAvailable: item.isAvailable, contentRule: item.contentRule }, videos })
 }
 
 async function refreshVideos(env: Env, kind: 'channel' | 'playlist', id: number, externalId: string, uploadsPlaylistId?: string) {

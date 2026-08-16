@@ -34,6 +34,7 @@ function formatDuration(seconds: number | null): string {
 const player = ref<YouTubePlayer | null>(null)
 const playbackError = ref<string | null>(null)
 const remainingSeconds = ref<number | null>(null)
+const usageBucket = ref<'restricted' | 'exempt'>('restricted')
 let reporter: ReturnType<typeof createPlaybackReporter> | null = null
 
 const warning = computed(() => {
@@ -51,12 +52,13 @@ function formatRemaining(seconds: number) {
 
 onMounted(async () => {
   try {
-    let authorization!: { sessionId: string; remainingSeconds: number }
+    let authorization!: { sessionId: string; remainingSeconds: number; usageBucket: 'restricted' | 'exempt' }
     player.value = await authorizeAndCreatePlayer(
       videoId,
       async requestedVideoId => {
-        const response = await apiFetch<{ authorization: { sessionId: string; remainingSeconds: number } }>('/api/child/playback-authorizations', { method: 'POST', body: { videoId: requestedVideoId } })
+        const response = await apiFetch<{ authorization: { sessionId: string; remainingSeconds: number; usageBucket: 'restricted' | 'exempt' } }>('/api/child/playback-authorizations', { method: 'POST', body: { videoId: requestedVideoId } })
         authorization = response.authorization
+        usageBucket.value = authorization.usageBucket
       },
       () => createYouTubePlayer('youtube-player', {
         videoId,
@@ -113,7 +115,8 @@ watch(playbackSpeed, (speed) => {
         <div class="p-4 bg-gray-800">
           <div class="flex items-center justify-between gap-4">
             <div>
-              <p v-if="remainingSeconds !== null" class="font-mono text-lg">{{ formatRemaining(remainingSeconds) }} remaining</p>
+              <p v-if="usageBucket === 'exempt'" class="text-green-300 text-sm">不计入普通额度</p>
+              <p v-if="remainingSeconds !== null" class="font-mono text-lg">{{ formatRemaining(remainingSeconds) }} {{ usageBucket === 'exempt' ? 'safety time' : 'Daily Allowance' }} remaining</p>
               <p v-if="warning" class="text-amber-300 text-sm" role="alert">{{ warning }}</p>
             </div>
             <div class="flex items-center gap-4">

@@ -79,6 +79,15 @@ async function deleteContent(id: number, type: string) {
   }
 }
 
+async function updateRule(id: number, type: string, rule: string) {
+  try {
+    await apiFetch(`/api/parent/children/${childId}/content/${type}/${id}/rule`, { method: 'PUT', body: { rule } })
+    await refresh()
+  } catch (e: any) {
+    alert(e.data?.message || e.message || 'Failed to update Content Rule')
+  }
+}
+
 function formatDuration(seconds: number | null): string {
   if (!seconds) return ''
   const m = Math.floor(seconds / 60)
@@ -168,9 +177,10 @@ function formatDuration(seconds: number | null): string {
               </div>
             </div>
             <template #footer>
-              <UButton color="red" variant="ghost" size="xs" @click="deleteContent(channel.id, 'channel')">
-                Remove
-              </UButton>
+              <div class="flex items-center justify-between gap-2">
+                <USelect :model-value="channel.contentRule" :items="[{ label: 'Restricted', value: 'restricted' }, { label: '不计入普通额度', value: 'exempt' }]" size="xs" @update:model-value="updateRule(channel.id, 'channel', String($event))" />
+                <UButton color="red" variant="ghost" size="xs" @click="deleteContent(channel.id, 'channel')">Remove</UButton>
+              </div>
             </template>
           </UCard>
         </div>
@@ -186,9 +196,10 @@ function formatDuration(seconds: number | null): string {
             <p class="font-medium truncate">{{ playlist.playlistTitle }}</p>
             <p v-if="!playlist.isAvailable" class="text-xs text-red-500">Unavailable</p>
             <template #footer>
-              <UButton color="red" variant="ghost" size="xs" @click="deleteContent(playlist.id, 'playlist')">
-                Remove
-              </UButton>
+              <div class="flex items-center justify-between gap-2">
+                <USelect :model-value="playlist.contentRule" :items="[{ label: 'Restricted', value: 'restricted' }, { label: '不计入普通额度', value: 'exempt' }]" size="xs" @update:model-value="updateRule(playlist.id, 'playlist', String($event))" />
+                <UButton color="red" variant="ghost" size="xs" @click="deleteContent(playlist.id, 'playlist')">Remove</UButton>
+              </div>
             </template>
           </UCard>
         </div>
@@ -210,9 +221,10 @@ function formatDuration(seconds: number | null): string {
             <p class="text-sm text-gray-500 truncate">{{ video.channelTitle }}</p>
             <p v-if="!video.isAvailable" class="text-xs text-red-500">Unavailable</p>
             <template #footer>
-              <UButton color="red" variant="ghost" size="xs" @click="deleteContent(video.id, 'video')">
-                Remove
-              </UButton>
+              <div class="flex items-center justify-between gap-2">
+                <USelect :model-value="video.contentRule" :items="[{ label: 'Restricted', value: 'restricted' }, { label: '不计入普通额度', value: 'exempt' }]" size="xs" @update:model-value="updateRule(video.id, 'video', String($event))" />
+                <UButton color="red" variant="ghost" size="xs" @click="deleteContent(video.id, 'video')">Remove</UButton>
+              </div>
             </template>
           </UCard>
         </div>
