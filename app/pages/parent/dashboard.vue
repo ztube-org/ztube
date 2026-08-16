@@ -32,6 +32,13 @@ async function createChild() {
     createLoading.value = false
   }
 }
+
+async function deleteChild(child: { id: number; displayName: string | null; email: string }) {
+  const name = child.displayName || child.email
+  if (!confirm(`Permanently delete ${name}?\n\nThis removes all Approved Content, Content Rules, Daily Usage Summaries, Temporary Extensions, and Active Playback. It cannot be undone.`)) return
+  await apiFetch(`/api/parent/children/${child.id}`, { method: 'DELETE' })
+  await refresh()
+}
 </script>
 
 <template>
@@ -70,11 +77,16 @@ async function createChild() {
         </div>
 
         <template #footer>
-          <NuxtLink :to="`/parent/child/${child.id}/manage`">
-            <UButton block variant="soft">
+          <div class="flex gap-2">
+            <NuxtLink class="flex-1" :to="`/parent/child/${child.id}/manage`">
+              <UButton block variant="soft">
               Manage Content
+              </UButton>
+            </NuxtLink>
+            <UButton color="red" variant="ghost" @click="deleteChild(child)">
+              Delete
             </UButton>
-          </NuxtLink>
+          </div>
         </template>
       </UCard>
     </div>

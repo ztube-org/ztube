@@ -6,6 +6,7 @@ A parental control YouTube platform for curating content for children.
 
 - Parents manage allowlists of YouTube channels, playlists, and videos
 - Children browse and watch only approved content
+- Server-authoritative daily viewing allowances with separate Safety Caps for Allowance-Exempt Content
 - Clean, distraction-free video player with speed controls
 - Admin panel for account management
 - Google authentication through Cloudflare Access
@@ -68,6 +69,8 @@ A parental control YouTube platform for curating content for children.
 The first non-admin Google identity to visit ZTube becomes a parent. A parent
 adds each child using the child's Google email before that child signs in.
 Administrator emails are configured in `wrangler.jsonc` via `ADMIN_EMAILS`.
+
+ZTube enforces Approved Content and viewing allowances only inside the ZTube application; it does not block the YouTube website or app at the device level. For the explicitly authorized empty-database launch procedure, see [the zero-data rollout runbook](docs/operations/zero-data-rollout.md). The destructive reset is never part of normal deployment or verification.
 
 ## Tech Stack
 

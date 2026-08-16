@@ -100,6 +100,12 @@ export function createApp(dependencies: AppDependencies = {}) {
     return c.json({ id: created.id, email: created.email, displayName: created.displayName }, 201)
   })
 
+  app.delete('/api/parent/children/:id', async c => {
+    const { db, childId } = await ownedChild(c)
+    await db.delete(schema.children).where(eq(schema.children.id, childId))
+    return c.body(null, 204)
+  })
+
   app.get('/api/parent/children/:id/time-settings', async c => {
     const { db, childId } = await ownedChild(c)
     let settings = await db.query.childTimeSettings.findFirst({ where: eq(schema.childTimeSettings.childId, childId) })
