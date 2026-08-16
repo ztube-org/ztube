@@ -42,9 +42,12 @@ async function deleteChild(child: { id: number; displayName: string | null; emai
 </script>
 
 <template>
-  <div>
-    <div class="flex items-center justify-between mb-8">
-      <h1 class="text-2xl font-bold">My Children</h1>
+  <div class="zt-page">
+    <div class="mb-8 flex items-end justify-between gap-4">
+      <div>
+        <p class="mb-1 text-sm font-medium text-[#065fd4]">Family dashboard</p>
+        <h1 class="text-3xl font-bold tracking-tight">My Children</h1>
+      </div>
       <UButton @click="showCreateModal = true">
         Add Child Account
       </UButton>
@@ -58,8 +61,8 @@ async function deleteChild(child: { id: number; displayName: string | null; emai
       </UButton>
     </div>
 
-    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      <UCard v-for="child in childrenData?.children" :key="child.id">
+    <div v-else class="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      <UCard v-for="child in childrenData?.children" :key="child.id" class="overflow-hidden rounded-2xl ring-1 ring-gray-200 transition hover:shadow-md">
         <template #header>
           <div class="flex items-center gap-3">
             <UAvatar :alt="child.displayName || child.email" size="lg" />
@@ -70,10 +73,10 @@ async function deleteChild(child: { id: number; displayName: string | null; emai
           </div>
         </template>
 
-        <div class="flex gap-4 text-sm text-gray-600 dark:text-gray-300">
-          <span>{{ child.stats.channels }} channels</span>
-          <span>{{ child.stats.playlists }} playlists</span>
-          <span>{{ child.stats.videos }} videos</span>
+        <div class="grid grid-cols-3 divide-x divide-gray-200 text-center text-sm">
+          <span><strong class="block text-lg text-[#0f0f0f]">{{ child.stats.channels }}</strong><span class="text-[#606060]">channels</span></span>
+          <span><strong class="block text-lg text-[#0f0f0f]">{{ child.stats.playlists }}</strong><span class="text-[#606060]">playlists</span></span>
+          <span><strong class="block text-lg text-[#0f0f0f]">{{ child.stats.videos }}</strong><span class="text-[#606060]">videos</span></span>
         </div>
 
         <template #footer>
@@ -83,7 +86,7 @@ async function deleteChild(child: { id: number; displayName: string | null; emai
               Manage Content
               </UButton>
             </NuxtLink>
-            <UButton color="red" variant="ghost" @click="deleteChild(child)">
+            <UButton color="neutral" variant="ghost" icon="i-heroicons-trash" @click="deleteChild(child)">
               Delete
             </UButton>
           </div>

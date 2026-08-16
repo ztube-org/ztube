@@ -149,24 +149,26 @@ function formatDuration(seconds: number | null): string {
 </script>
 
 <template>
-  <div>
-    <div class="flex items-center gap-4 mb-8">
+  <div class="zt-page">
+    <div class="mb-8 flex items-center gap-3 border-b border-gray-200 pb-5">
       <NuxtLink to="/parent/dashboard">
         <UButton color="gray" variant="ghost" icon="i-heroicons-arrow-left" />
       </NuxtLink>
-      <h1 class="text-2xl font-bold">
-        {{ data?.child?.displayName || data?.child?.email }}'s Content
-      </h1>
+      <div>
+        <p class="text-sm font-medium text-[#065fd4]">Child settings</p>
+        <h1 class="text-2xl font-bold tracking-tight">{{ data?.child?.displayName || data?.child?.email }}</h1>
+      </div>
     </div>
 
-    <UCard class="mb-8">
+    <div class="grid gap-5 xl:grid-cols-2">
+    <UCard class="rounded-2xl ring-1 ring-gray-200">
       <template #header>
         <div>
           <h2 class="text-lg font-semibold">Viewing allowances</h2>
           <p class="text-sm text-gray-500">Allowances reset at midnight in this Child's fixed time zone.</p>
         </div>
       </template>
-      <form class="grid gap-4 md:grid-cols-2" @submit.prevent="saveTimeSettings">
+      <form class="grid gap-4 sm:grid-cols-2" @submit.prevent="saveTimeSettings">
         <UFormField label="Time zone" class="md:col-span-2">
           <USelect v-model="timeForm.timeZone" :items="timeZoneOptions" class="w-full" />
           <template #hint>Initially suggested from this browser: {{ detectedTimeZone }}</template>
@@ -193,15 +195,15 @@ function formatDuration(seconds: number | null): string {
       </form>
     </UCard>
 
-    <UCard class="mb-8">
+    <UCard class="rounded-2xl ring-1 ring-gray-200">
       <template #header>
         <div>
           <h2 class="text-lg font-semibold">Today's viewing</h2>
           <p class="text-sm text-gray-500">Viewing Day {{ watchTime?.viewingDay }}. Today's changes expire at local midnight.</p>
         </div>
       </template>
-      <div v-if="watchTime" class="grid gap-4 md:grid-cols-2">
-        <div class="rounded-lg border p-4">
+      <div v-if="watchTime" class="grid gap-4 sm:grid-cols-2">
+        <div class="rounded-xl bg-gray-50 p-4">
           <h3 class="font-semibold">Restricted Watch Time</h3>
           <p class="mt-1 text-2xl font-bold">{{ watchTime.restricted.usedMinutes }} min used</p>
           <p class="text-sm text-gray-500">
@@ -215,7 +217,7 @@ function formatDuration(seconds: number | null): string {
             </UButton>
           </div>
         </div>
-        <div class="rounded-lg border p-4">
+        <div class="rounded-xl bg-[#e8f0fe] p-4">
           <h3 class="font-semibold">Allowance-Exempt Content</h3>
           <p class="mt-1 text-2xl font-bold">{{ watchTime.exempt.usedMinutes }} min used</p>
           <p class="text-sm text-gray-500">
@@ -229,10 +231,11 @@ function formatDuration(seconds: number | null): string {
       </div>
       <p v-else class="text-sm text-gray-500">Loading today's usage…</p>
     </UCard>
+    </div>
 
     <!-- Add Content Form -->
-    <UCard class="mb-8">
-      <form @submit.prevent="addContent" class="flex gap-4">
+    <UCard class="my-6 rounded-2xl ring-1 ring-gray-200">
+      <form @submit.prevent="addContent" class="flex flex-col gap-3 sm:flex-row">
         <UInput
           v-model="addUrl"
           placeholder="Paste YouTube URL (video, playlist, or channel)"
@@ -247,7 +250,7 @@ function formatDuration(seconds: number | null): string {
     </UCard>
 
     <!-- Content Tabs -->
-    <UTabs :items="[
+    <UTabs class="rounded-2xl bg-white p-3 ring-1 ring-gray-200 sm:p-5" :items="[
       { label: `Channels (${data?.channels?.length || 0})`, slot: 'channels' },
       { label: `Playlists (${data?.playlists?.length || 0})`, slot: 'playlists' },
       { label: `Videos (${data?.videos?.length || 0})`, slot: 'videos' },
@@ -256,8 +259,8 @@ function formatDuration(seconds: number | null): string {
         <div v-if="!data?.channels?.length" class="text-center py-8 text-gray-500">
           No channels added yet
         </div>
-        <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-4">
-          <UCard v-for="channel in data.channels" :key="channel.id" :class="{ 'opacity-50': !channel.isAvailable }">
+        <div v-else class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+          <UCard v-for="channel in data.channels" :key="channel.id" class="rounded-xl ring-1 ring-gray-200" :class="{ 'opacity-50': !channel.isAvailable }">
             <div class="flex items-center gap-3">
               <UAvatar :src="channel.channelThumbnail" :alt="channel.channelTitle" size="lg" />
               <div class="flex-1 min-w-0">
@@ -266,10 +269,10 @@ function formatDuration(seconds: number | null): string {
               </div>
             </div>
             <template #footer>
-              <div class="flex items-center justify-between gap-2">
+              <div class="flex flex-wrap items-center gap-2">
                 <USelect :model-value="channel.contentRule" :items="[{ label: 'Restricted', value: 'restricted' }, { label: '不计入普通额度', value: 'exempt' }]" size="xs" @update:model-value="updateRule(channel.id, 'channel', String($event))" />
                 <UButton variant="ghost" size="xs" @click="showVideoOverrides('channel', channel.id, channel.channelTitle)">Video overrides</UButton>
-                <UButton color="red" variant="ghost" size="xs" @click="deleteContent(channel.id, 'channel')">Remove</UButton>
+                <UButton color="neutral" variant="ghost" size="xs" icon="i-heroicons-trash" @click="deleteContent(channel.id, 'channel')">Remove</UButton>
               </div>
             </template>
           </UCard>
@@ -280,16 +283,16 @@ function formatDuration(seconds: number | null): string {
         <div v-if="!data?.playlists?.length" class="text-center py-8 text-gray-500">
           No playlists added yet
         </div>
-        <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-4">
-          <UCard v-for="playlist in data.playlists" :key="playlist.id" :class="{ 'opacity-50': !playlist.isAvailable }">
-            <img :src="playlist.playlistThumbnail" :alt="playlist.playlistTitle" class="w-full aspect-video object-cover rounded mb-2" />
+        <div v-else class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+          <UCard v-for="playlist in data.playlists" :key="playlist.id" class="rounded-xl ring-1 ring-gray-200" :class="{ 'opacity-50': !playlist.isAvailable }">
+            <img :src="playlist.playlistThumbnail" :alt="playlist.playlistTitle" class="zt-thumbnail mb-2" />
             <p class="font-medium truncate">{{ playlist.playlistTitle }}</p>
             <p v-if="!playlist.isAvailable" class="text-xs text-red-500">Unavailable</p>
             <template #footer>
-              <div class="flex items-center justify-between gap-2">
+              <div class="flex flex-wrap items-center gap-2">
                 <USelect :model-value="playlist.contentRule" :items="[{ label: 'Restricted', value: 'restricted' }, { label: '不计入普通额度', value: 'exempt' }]" size="xs" @update:model-value="updateRule(playlist.id, 'playlist', String($event))" />
                 <UButton variant="ghost" size="xs" @click="showVideoOverrides('playlist', playlist.id, playlist.playlistTitle)">Video overrides</UButton>
-                <UButton color="red" variant="ghost" size="xs" @click="deleteContent(playlist.id, 'playlist')">Remove</UButton>
+                <UButton color="neutral" variant="ghost" size="xs" icon="i-heroicons-trash" @click="deleteContent(playlist.id, 'playlist')">Remove</UButton>
               </div>
             </template>
           </UCard>
@@ -300,10 +303,10 @@ function formatDuration(seconds: number | null): string {
         <div v-if="!data?.videos?.length" class="text-center py-8 text-gray-500">
           No videos added yet
         </div>
-        <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-4">
-          <UCard v-for="video in data.videos" :key="video.id" :class="{ 'opacity-50': !video.isAvailable }">
+        <div v-else class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+          <UCard v-for="video in data.videos" :key="video.id" class="rounded-xl ring-1 ring-gray-200" :class="{ 'opacity-50': !video.isAvailable }">
             <div class="relative">
-              <img :src="video.videoThumbnail" :alt="video.videoTitle" class="w-full aspect-video object-cover rounded" />
+              <img :src="video.videoThumbnail" :alt="video.videoTitle" class="zt-thumbnail" />
               <span v-if="video.duration" class="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1 rounded">
                 {{ formatDuration(video.duration) }}
               </span>
@@ -312,9 +315,9 @@ function formatDuration(seconds: number | null): string {
             <p class="text-sm text-gray-500 truncate">{{ video.channelTitle }}</p>
             <p v-if="!video.isAvailable" class="text-xs text-red-500">Unavailable</p>
             <template #footer>
-              <div class="flex items-center justify-between gap-2">
+              <div class="flex flex-wrap items-center gap-2">
                 <USelect :model-value="video.contentRule" :items="[{ label: 'Restricted', value: 'restricted' }, { label: '不计入普通额度', value: 'exempt' }]" size="xs" @update:model-value="updateRule(video.id, 'video', String($event))" />
-                <UButton color="red" variant="ghost" size="xs" @click="deleteContent(video.id, 'video')">Remove</UButton>
+                <UButton color="neutral" variant="ghost" size="xs" icon="i-heroicons-trash" @click="deleteContent(video.id, 'video')">Remove</UButton>
               </div>
             </template>
           </UCard>

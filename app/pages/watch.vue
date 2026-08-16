@@ -87,46 +87,46 @@ watch(playbackSpeed, (speed) => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-900 text-white">
+  <div class="min-h-screen bg-[#f9f9f9] text-[#0f0f0f]">
     <!-- Header -->
-    <header class="bg-gray-800 px-4 py-3 flex items-center justify-between">
-      <NuxtLink :to="playlistParam ? `/browse/playlist/${playlistParam}` : '/browse'" class="flex items-center gap-2 text-gray-300 hover:text-white">
+    <header class="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-gray-200 bg-white/95 px-4 backdrop-blur sm:px-6">
+      <NuxtLink :to="playlistParam ? `/browse/playlist/${playlistParam}` : '/browse'" class="flex min-h-11 items-center gap-2 rounded-full px-3 text-sm font-medium hover:bg-gray-100">
         <UIcon name="i-heroicons-arrow-left" class="w-5 h-5" />
         Back
       </NuxtLink>
-      <span class="text-xl font-bold text-primary-500">ZTube</span>
-      <UButton color="gray" variant="ghost" size="sm" @click="logout">
+      <span class="flex items-center gap-2 text-xl font-bold"><span class="flex h-8 w-10 items-center justify-center rounded-lg bg-[#065fd4] text-white"><UIcon name="i-heroicons-play-solid" class="h-4 w-4" /></span>ZTube</span>
+      <UButton color="neutral" variant="ghost" size="sm" @click="logout">
         Logout
       </UButton>
     </header>
 
-    <div class="flex">
+    <div class="mx-auto flex max-w-[1600px] flex-col gap-6 p-0 sm:p-4 lg:p-6 xl:flex-row xl:items-start">
       <!-- Main Player Area -->
-      <div :class="playlistData.data.value ? 'flex-1' : 'w-full'">
+      <div class="min-w-0 flex-1">
         <!-- Video Player -->
-        <div class="aspect-video bg-black">
+        <div class="aspect-video overflow-hidden bg-black sm:rounded-xl">
           <div v-if="!playbackError" id="youtube-player" class="w-full h-full"></div>
-          <div v-else class="h-full flex items-center justify-center p-6 text-center text-red-300">
+          <div v-else class="flex h-full items-center justify-center p-6 text-center text-blue-200">
             {{ playbackError }}
           </div>
         </div>
 
         <!-- Controls -->
-        <div class="p-4 bg-gray-800">
-          <div class="flex items-center justify-between gap-4">
+        <div class="border-b border-gray-200 bg-white p-4 sm:mt-3 sm:rounded-xl sm:border">
+          <div class="flex flex-col justify-between gap-4 md:flex-row md:items-center">
             <div>
-              <p v-if="usageBucket === 'exempt'" class="text-green-300 text-sm">不计入普通额度</p>
-              <p v-if="remainingSeconds !== null" class="font-mono text-lg">{{ formatRemaining(remainingSeconds) }} {{ usageBucket === 'exempt' ? 'safety time' : 'Daily Allowance' }} remaining</p>
-              <p v-if="warning" class="text-amber-300 text-sm" role="alert">{{ warning }}</p>
+              <p v-if="usageBucket === 'exempt'" class="text-sm font-medium text-[#065fd4]">不计入普通额度</p>
+              <p v-if="remainingSeconds !== null" class="font-mono text-lg font-semibold">{{ formatRemaining(remainingSeconds) }} {{ usageBucket === 'exempt' ? 'safety time' : 'Daily Allowance' }} remaining</p>
+              <p v-if="warning" class="text-sm font-medium text-amber-600" role="alert">{{ warning }}</p>
             </div>
-            <div class="flex items-center gap-4">
-            <span class="text-sm text-gray-400">Speed:</span>
-            <div class="flex gap-1">
+            <div class="flex items-center gap-3 overflow-x-auto pb-1 md:pb-0">
+            <span class="shrink-0 text-sm text-[#606060]">Speed</span>
+            <div class="flex gap-1 rounded-full bg-gray-100 p-1">
               <UButton
                 v-for="speed in speeds"
                 :key="speed"
                 :variant="playbackSpeed === speed ? 'solid' : 'ghost'"
-                :color="playbackSpeed === speed ? 'primary' : 'gray'"
+                :color="playbackSpeed === speed ? 'primary' : 'neutral'"
                 size="xs"
                 @click="playbackSpeed = speed"
               >
@@ -139,33 +139,33 @@ watch(playbackSpeed, (speed) => {
       </div>
 
       <!-- Playlist Sidebar -->
-      <div v-if="playlistData.data.value?.videos" class="w-80 bg-gray-800 overflow-y-auto h-[calc(100vh-56px)]">
-        <div class="p-4 border-b border-gray-700">
+      <aside v-if="playlistData.data.value?.videos" class="zt-panel w-full overflow-hidden xl:sticky xl:top-22 xl:max-h-[calc(100vh-7rem)] xl:w-[400px] xl:overflow-y-auto">
+        <div class="border-b border-gray-200 p-4">
           <h3 class="font-semibold truncate">{{ playlistData.data.value.playlist?.title }}</h3>
-          <p class="text-sm text-gray-400">{{ playlistData.data.value.videos.length }} videos</p>
+          <p class="text-sm text-[#606060]">{{ playlistData.data.value.videos.length }} videos</p>
         </div>
-        <div class="divide-y divide-gray-700">
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:block">
           <NuxtLink
             v-for="(video, index) in playlistData.data.value.videos"
             :key="video.id"
             :to="`/watch?v=${video.videoId}&playlist=${playlistParam}`"
-            class="flex gap-3 p-3 hover:bg-gray-700 transition"
-            :class="{ 'bg-gray-700': video.videoId === videoId }"
+            class="flex min-h-24 gap-3 border-b border-gray-100 p-3 transition hover:bg-gray-100"
+            :class="{ 'bg-[#e8f0fe]': video.videoId === videoId }"
           >
-            <span class="text-sm text-gray-400 w-6 text-center">{{ Number(index) + 1 }}</span>
+            <span class="w-5 shrink-0 text-center text-sm text-[#606060]">{{ Number(index) + 1 }}</span>
             <div class="relative flex-shrink-0">
-              <img :src="video.videoThumbnail" class="w-24 h-14 object-cover rounded" />
+              <img :src="video.videoThumbnail" class="h-16 w-28 rounded-lg object-cover xl:h-14 xl:w-24" />
               <span v-if="video.duration" class="absolute bottom-0.5 right-0.5 bg-black/80 text-xs px-1 rounded">
                 {{ formatDuration(video.duration) }}
               </span>
             </div>
             <div class="flex-1 min-w-0">
               <p class="text-sm line-clamp-2">{{ video.videoTitle }}</p>
-              <p class="text-xs text-gray-400 truncate mt-1">{{ video.channelTitle }}</p>
+              <p class="mt-1 truncate text-xs text-[#606060]">{{ video.channelTitle }}</p>
             </div>
           </NuxtLink>
         </div>
-      </div>
+      </aside>
     </div>
   </div>
 </template>

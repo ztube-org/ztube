@@ -16,8 +16,8 @@ function formatDuration(seconds: number | null): string {
 </script>
 
 <template>
-  <div>
-    <div class="flex items-center gap-4 mb-8">
+  <div class="zt-page">
+    <div class="mb-8 flex items-center gap-4 border-b border-gray-200 pb-6">
       <NuxtLink to="/browse">
         <UButton color="gray" variant="ghost" icon="i-heroicons-arrow-left" />
       </NuxtLink>
@@ -26,31 +26,34 @@ function formatDuration(seconds: number | null): string {
         :src="data.channel.thumbnail"
         size="lg"
       />
-      <h1 class="text-2xl font-bold">{{ data?.channel?.title }}</h1>
+      <div>
+        <p class="text-sm font-medium text-[#065fd4]">Channel</p>
+        <h1 class="text-2xl font-bold tracking-tight">{{ data?.channel?.title }}</h1>
+      </div>
     </div>
 
     <div v-if="!data?.videos?.length" class="text-center py-16 text-gray-500">
       No videos from this channel yet
     </div>
 
-    <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+    <div v-else class="zt-video-grid">
       <NuxtLink
         v-for="video in data.videos"
         :key="video.id"
         :to="`/watch?v=${video.videoId}`"
-        class="group"
+        class="zt-video-card group"
       >
         <div class="relative">
           <img
             :src="video.videoThumbnail"
             :alt="video.videoTitle"
-            class="w-full aspect-video object-cover rounded-lg group-hover:ring-2 ring-primary-500 transition"
+            class="zt-thumbnail"
           />
-          <span v-if="video.duration" class="absolute bottom-2 right-2 bg-black/80 text-white text-xs px-2 py-1 rounded">
+          <span v-if="video.duration" class="zt-duration">
             {{ formatDuration(video.duration) }}
           </span>
         </div>
-        <p class="mt-2 font-medium line-clamp-2">{{ video.videoTitle }}</p>
+        <p class="mt-3 font-semibold leading-5 line-clamp-2">{{ video.videoTitle }}</p>
       </NuxtLink>
     </div>
   </div>
