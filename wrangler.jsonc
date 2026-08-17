@@ -22,8 +22,7 @@
     "run_worker_first": ["/api/*"]
   },
   "vars": {
-    "AUTH_MODE": "access",
-    "ADMIN_EMAILS": "admin@example.com,admin2@example.com"
+    "AUTH_MODE": "access"
   },
   "d1_databases": [
     {

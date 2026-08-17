@@ -50,6 +50,7 @@ A curated YouTube viewer with server-enforced content and viewing controls for C
 3. Set secrets:
    ```bash
    npx wrangler secret put YOUTUBE_API_KEY
+   npx wrangler secret put ADMIN_EMAILS
    ```
 
 4. Run migrations:
