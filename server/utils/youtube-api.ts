@@ -6,7 +6,7 @@ export class YouTubeApiError extends Error {}
 
 async function youtubeJson(url: string) {
   const response = await fetch(url)
-  const data = await response.json() as { items?: any[]; error?: { message?: string; errors?: Array<{ reason?: string }> } }
+  const data = await response.json() as { items?: any[]; nextPageToken?: string; error?: { message?: string; errors?: Array<{ reason?: string }> } }
   if (!response.ok) {
     const reason = data.error?.errors?.[0]?.reason
     const message = reason === 'quotaExceeded'
@@ -32,6 +32,7 @@ export interface VideoMetadata {
   thumbnail: string
   duration: number
   channelTitle: string
+  publishedAt: Date | null
 }
 
 export interface PlaylistMetadata {
@@ -64,6 +65,7 @@ export async function fetchVideoMetadata(videoId: string, key: string): Promise<
     thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
     duration: parseDuration(item.contentDetails?.duration || 'PT0S'),
     channelTitle: item.snippet.channelTitle,
+    publishedAt: item.snippet.publishedAt ? new Date(item.snippet.publishedAt) : null,
   }
 }
 
@@ -115,39 +117,49 @@ export async function fetchChannelMetadata(channelId: string, key: string): Prom
   }
 }
 
-export async function fetchPlaylistVideos(playlistId: string, key: string, maxResults = 50): Promise<VideoMetadata[]> {
+export async function fetchPlaylistVideosPage(playlistId: string, key: string, pageToken?: string, maxResults = 50): Promise<{ videos: VideoMetadata[]; nextPageToken: string | null }> {
   const apiKey = requireApiKey(key)
-  const url = `${YOUTUBE_API_BASE}/playlistItems?part=snippet,contentDetails&playlistId=${playlistId}&maxResults=${maxResults}&key=${apiKey}`
+  const url = new URL(`${YOUTUBE_API_BASE}/playlistItems`)
+  url.search = new URLSearchParams({ part: 'snippet,contentDetails', playlistId, maxResults: String(maxResults), key: apiKey, ...(pageToken ? { pageToken } : {}) }).toString()
 
-  const response = await fetch(url)
-  const data = await response.json() as { items?: any[] }
+  const data = await youtubeJson(url.toString())
 
   if (!data.items) {
-    return []
+    return { videos: [], nextPageToken: null }
   }
 
   // Get video IDs to fetch duration info
   const videoIds = data.items.map((item: any) => item.contentDetails.videoId).join(',')
 
-  if (!videoIds) return []
+  if (!videoIds) return { videos: [], nextPageToken: data.nextPageToken ?? null }
 
-  const videosUrl = `${YOUTUBE_API_BASE}/videos?part=contentDetails&id=${videoIds}&key=${apiKey}`
-  const videosResponse = await fetch(videosUrl)
-  const videosData = await videosResponse.json() as { items?: any[] }
+  const videosUrl = `${YOUTUBE_API_BASE}/videos?part=snippet,contentDetails&id=${videoIds}&key=${apiKey}`
+  const videosData = await youtubeJson(videosUrl)
 
-  const durationMap = new Map<string, number>()
+  const metadataMap = new Map<string, { duration: number; publishedAt: Date | null }>()
   for (const video of videosData.items || []) {
-    durationMap.set(video.id, parseDuration(video.contentDetails?.duration || 'PT0S'))
+    metadataMap.set(video.id, {
+      duration: parseDuration(video.contentDetails?.duration || 'PT0S'),
+      publishedAt: video.snippet?.publishedAt ? new Date(video.snippet.publishedAt) : null,
+    })
   }
 
-  return data.items.map((item: any, index: number) => ({
-    videoId: item.contentDetails.videoId,
-    title: item.snippet.title,
-    thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
-    duration: durationMap.get(item.contentDetails.videoId) || 0,
-    channelTitle: item.snippet.channelTitle || '',
-    position: index,
-  }))
+  return {
+    videos: data.items.map((item: any, index: number) => ({
+      videoId: item.contentDetails.videoId,
+      title: item.snippet.title,
+      thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
+      duration: metadataMap.get(item.contentDetails.videoId)?.duration || 0,
+      channelTitle: item.snippet.channelTitle || '',
+      publishedAt: metadataMap.get(item.contentDetails.videoId)?.publishedAt ?? null,
+      position: index,
+    })),
+    nextPageToken: data.nextPageToken ?? null,
+  }
+}
+
+export async function fetchPlaylistVideos(playlistId: string, key: string, maxResults = 50): Promise<VideoMetadata[]> {
+  return (await fetchPlaylistVideosPage(playlistId, key, undefined, maxResults)).videos
 }
 
 export async function fetchChannelVideos(channelId: string, key: string, maxResults = 50): Promise<VideoMetadata[]> {

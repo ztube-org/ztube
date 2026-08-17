@@ -1,17 +1,76 @@
 <script setup lang="ts">
+import { nextTick, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { useApi } from '../../../../src/api'
+import { apiFetch } from '../../../../src/api'
 
 const route = useRoute()
 const channelId = route.params.id as string
 
-const { data } = useApi<any>(`/api/child/channel/${channelId}/videos`)
+const data = ref<any>(null)
+const loadError = ref('')
+const page = ref(0)
+const refreshing = ref(false)
+const refreshError = ref('')
+const loadingMore = ref(false)
+
+async function refreshLatest() {
+  page.value = 0
+  refreshing.value = true
+  refreshError.value = ''
+  try {
+    data.value = await apiFetch<any>(`/api/child/channel/${channelId}/videos?refresh=true`)
+  } catch (value) {
+    refreshError.value = value instanceof Error ? value.message : 'Unable to refresh channel videos'
+  } finally {
+    refreshing.value = false
+  }
+}
+
+onMounted(async () => {
+  try {
+    data.value = await apiFetch<any>(`/api/child/channel/${channelId}/videos`)
+    await nextTick()
+  } catch (value) {
+    loadError.value = value instanceof Error ? value.message : 'Unable to load cached channel videos'
+  }
+  await refreshLatest()
+})
+
+async function loadMore() {
+  if (!data.value?.nextPageToken) return
+  loadingMore.value = true
+  try {
+    const nextPage = page.value + 1
+    const result = await apiFetch<any>(`/api/child/channel/${channelId}/videos?page=${nextPage}&pageToken=${encodeURIComponent(data.value.nextPageToken)}`)
+    data.value.videos.push(...result.videos)
+    data.value.favoriteVideoIds = [...new Set([...(data.value.favoriteVideoIds ?? []), ...(result.favoriteVideoIds ?? [])])]
+    data.value.nextPageToken = result.nextPageToken
+    page.value = nextPage
+  } finally {
+    loadingMore.value = false
+  }
+}
 
 function formatDuration(seconds: number | null): string {
   if (!seconds) return ''
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function formatPublishedDate(value: string | null): string {
+  return value ? new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(new Date(value)) : ''
+}
+
+async function toggleFavorite(videoId: string) {
+  const favorites: string[] = data.value.favoriteVideoIds ?? []
+  if (favorites.includes(videoId)) {
+    await apiFetch(`/api/child/favorites/${encodeURIComponent(videoId)}`, { method: 'DELETE' })
+    data.value.favoriteVideoIds = favorites.filter(id => id !== videoId)
+  } else {
+    await apiFetch('/api/child/favorites', { method: 'POST', body: { videoId } })
+    data.value.favoriteVideoIds = [...favorites, videoId]
+  }
 }
 </script>
 
@@ -26,17 +85,16 @@ function formatDuration(seconds: number | null): string {
         :src="data.channel.thumbnail"
         size="lg"
       />
-      <div>
+      <div class="min-w-0 flex-1">
         <p class="text-sm font-medium text-[#065fd4]">Channel</p>
-        <h1 class="text-2xl font-bold tracking-tight">{{ data?.channel?.title }}</h1>
+        <h1 class="truncate text-2xl font-bold tracking-tight">{{ data?.channel?.title }}</h1>
       </div>
+      <UButton color="neutral" variant="soft" icon="i-heroicons-arrow-path" :loading="refreshing" @click="refreshLatest">Refresh</UButton>
     </div>
 
-    <div v-if="data?.channel && !data.channel.isAvailable" class="text-center py-16 text-red-600">
-      Unable to load videos from this channel. Please try again later.
-    </div>
+    <UAlert v-if="loadError || refreshError" color="red" title="Unable to refresh channel videos" :description="refreshError || loadError" class="mb-4" />
 
-    <div v-else-if="!data?.videos?.length" class="text-center py-16 text-gray-500">
+    <div v-else-if="!data?.videos?.length" class="py-12 text-center text-gray-500">
       Loading channel videos…
     </div>
 
@@ -56,9 +114,23 @@ function formatDuration(seconds: number | null): string {
           <span v-if="video.duration" class="zt-duration">
             {{ formatDuration(video.duration) }}
           </span>
+          <UButton
+            :icon="data.favoriteVideoIds?.includes(video.videoId) ? 'i-heroicons-star-solid' : 'i-heroicons-star'"
+            color="neutral"
+            variant="solid"
+            size="xs"
+            class="absolute right-2 top-2 min-h-11 min-w-11"
+            :aria-label="data.favoriteVideoIds?.includes(video.videoId) ? 'Remove from Favorites' : 'Add to Favorites'"
+            @click.prevent.stop="toggleFavorite(video.videoId)"
+          />
         </div>
         <p class="mt-3 font-semibold leading-5 line-clamp-2">{{ video.videoTitle }}</p>
+        <p v-if="video.publishedAt" class="mt-1 text-sm text-[#606060]">{{ formatPublishedDate(video.publishedAt) }}</p>
       </NuxtLink>
+    </div>
+
+    <div v-if="data?.nextPageToken" class="mt-5 flex justify-center">
+      <UButton variant="soft" :loading="loadingMore" @click="loadMore">Load more videos</UButton>
     </div>
   </div>
 </template>

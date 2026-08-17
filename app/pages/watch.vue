@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { apiFetch, useApi, useAuth } from '../../src/api'
 import { authorizeAndCreatePlayer, createPlaybackReporter, createYouTubePlayer, type PlaybackState, type YouTubePlayer } from '../../src/youtube-player'
@@ -14,9 +14,6 @@ const { logout } = useAuth()
 const playlistData = playlistParam
   ? useApi<any>(`/api/child/playlist/${playlistParam}/videos`)
   : { data: ref(null) }
-
-const playbackSpeed = ref(1)
-const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
 
 const currentVideoIndex = computed(() => {
   if (!playlistData.data.value?.videos) return -1
@@ -35,6 +32,7 @@ const player = ref<YouTubePlayer | null>(null)
 const playbackError = ref<string | null>(null)
 const remainingSeconds = ref<number | null>(null)
 const usageBucket = ref<'restricted' | 'exempt'>('restricted')
+const favorite = ref(false)
 let reporter: ReturnType<typeof createPlaybackReporter> | null = null
 
 const warning = computed(() => {
@@ -47,29 +45,34 @@ const warning = computed(() => {
 })
 
 function formatRemaining(seconds: number) {
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+  const minutes = Math.ceil(seconds / 60)
+  return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
 }
 
 onMounted(async () => {
   try {
-    let authorization!: { sessionId: string; remainingSeconds: number; usageBucket: 'restricted' | 'exempt' }
+    let authorization!: { sessionId: string; remainingSeconds: number; usageBucket: 'restricted' | 'exempt'; resumeAt: number; favorite: boolean }
     player.value = await authorizeAndCreatePlayer(
       videoId,
       async requestedVideoId => {
-        const response = await apiFetch<{ authorization: { sessionId: string; remainingSeconds: number; usageBucket: 'restricted' | 'exempt' } }>('/api/child/playback-authorizations', { method: 'POST', body: { videoId: requestedVideoId } })
+        const response = await apiFetch<{ authorization: { sessionId: string; remainingSeconds: number; usageBucket: 'restricted' | 'exempt'; resumeAt: number; favorite: boolean } }>('/api/child/playback-authorizations', { method: 'POST', body: { videoId: requestedVideoId } })
         authorization = response.authorization
         usageBucket.value = authorization.usageBucket
+        favorite.value = authorization.favorite
       },
       () => createYouTubePlayer('youtube-player', {
         videoId,
-        onReady: readyPlayer => readyPlayer.setPlaybackRate(playbackSpeed.value),
+        onReady: readyPlayer => {
+          if (authorization.resumeAt >= 30) readyPlayer.seekTo?.(authorization.resumeAt, true)
+        },
         onStateChange: (state: PlaybackState) => reporter?.setState(state),
       }),
     )
     reporter = createPlaybackReporter({
       initialRemainingSeconds: authorization.remainingSeconds,
-      heartbeat: (sequence, state) => apiFetch(`/api/child/playback-authorizations/${authorization.sessionId}/heartbeats`, { method: 'POST', body: { sequence, state } }),
+      heartbeat: (sequence, state, positionSeconds) => apiFetch(`/api/child/playback-authorizations/${authorization.sessionId}/heartbeats`, { method: 'POST', body: { sequence, state, positionSeconds } }),
       pause: () => player.value?.pauseVideo?.(),
+      position: () => player.value?.getCurrentTime?.() ?? 0,
       onRemaining: seconds => { remainingSeconds.value = seconds },
     })
   } catch (error) {
@@ -79,11 +82,16 @@ onMounted(async () => {
 
 onBeforeUnmount(() => reporter?.stop())
 
-watch(playbackSpeed, (speed) => {
-  if (player.value?.setPlaybackRate) {
-    player.value.setPlaybackRate(speed)
+async function toggleFavorite() {
+  if (favorite.value) {
+    await apiFetch(`/api/child/favorites/${encodeURIComponent(videoId)}`, { method: 'DELETE' })
+    favorite.value = false
+  } else {
+    await apiFetch('/api/child/favorites', { method: 'POST', body: { videoId } })
+    favorite.value = true
   }
-})
+}
+
 </script>
 
 <template>
@@ -113,27 +121,15 @@ watch(playbackSpeed, (speed) => {
 
         <!-- Controls -->
         <div class="border-b border-gray-200 bg-white p-4 sm:mt-3 sm:rounded-xl sm:border">
-          <div class="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+          <div class="flex items-center justify-between gap-4">
             <div>
               <p v-if="usageBucket === 'exempt'" class="text-sm font-medium text-[#065fd4]">Safety Cap only</p>
-              <p v-if="remainingSeconds !== null" class="font-mono text-lg font-semibold">{{ formatRemaining(remainingSeconds) }} {{ usageBucket === 'exempt' ? 'Safety Cap' : 'Daily Allowance' }} remaining</p>
+            <p v-if="remainingSeconds !== null" class="text-lg font-semibold">{{ formatRemaining(remainingSeconds) }} {{ usageBucket === 'exempt' ? 'Safety Cap' : 'Daily Allowance' }} remaining</p>
               <p v-if="warning" class="text-sm font-medium text-amber-600" role="alert">{{ warning }}</p>
             </div>
-            <div class="flex items-center gap-3 overflow-x-auto pb-1 md:pb-0">
-            <span class="shrink-0 text-sm text-[#606060]">Speed</span>
-            <div class="flex gap-1 rounded-full bg-gray-100 p-1">
-              <UButton
-                v-for="speed in speeds"
-                :key="speed"
-                :variant="playbackSpeed === speed ? 'solid' : 'ghost'"
-                :color="playbackSpeed === speed ? 'primary' : 'neutral'"
-                size="xs"
-                @click="playbackSpeed = speed"
-              >
-                {{ speed }}x
-              </UButton>
-            </div>
-            </div>
+            <UButton :icon="favorite ? 'i-heroicons-star-solid' : 'i-heroicons-star'" :variant="favorite ? 'solid' : 'soft'" @click="toggleFavorite">
+              {{ favorite ? 'Favorited' : 'Favorite' }}
+            </UButton>
           </div>
         </div>
       </div>

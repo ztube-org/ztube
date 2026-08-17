@@ -85,6 +85,7 @@ const videoRuleOptions = computed(() => [
 ])
 const overrideVideos = ref<any[]>([])
 const overrideLoading = ref(false)
+const recommendedVideoId = ref('')
 
 async function addContent() {
   addError.value = ''
@@ -139,6 +140,11 @@ function overrideFor(videoId: string) {
   return data.value?.videoRules?.find((item: any) => item.videoId === videoId)?.contentRule || 'inherit'
 }
 
+async function recommendVideo(videoId: string) {
+  await apiFetch(`/api/admin/children/${childId}/recommendations`, { method: 'POST', body: { videoId } })
+  recommendedVideoId.value = videoId
+}
+
 async function updateVideoOverride(videoId: string, rule: string) {
   if (!overrideSource.value) return
   if (rule === 'inherit') await apiFetch(`/api/admin/children/${childId}/video-rules/${encodeURIComponent(videoId)}`, { method: 'DELETE' })
@@ -153,6 +159,10 @@ function formatDuration(seconds: number | null): string {
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function formatPublishedDate(value: string | null): string {
+  return value ? new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(new Date(value)) : ''
 }
 </script>
 
@@ -328,10 +338,12 @@ function formatDuration(seconds: number | null): string {
             </div>
             <p class="font-medium truncate mt-2">{{ video.videoTitle }}</p>
             <p class="text-sm text-gray-500 truncate">{{ video.channelTitle }}</p>
+            <p v-if="video.publishedAt" class="text-sm text-gray-500">{{ formatPublishedDate(video.publishedAt) }}</p>
             <p v-if="!video.isAvailable" class="text-xs text-red-500">Unavailable</p>
             <template #footer>
               <div class="flex flex-wrap items-center gap-2">
                 <USelect :model-value="video.contentRule" :items="contentRuleOptions" class="min-w-44" size="xs" @update:model-value="updateRule(video.id, 'video', String($event))" />
+                <UButton color="primary" variant="soft" size="xs" icon="i-heroicons-megaphone" @click="recommendVideo(video.videoId)">{{ recommendedVideoId === video.videoId ? 'Recommended' : 'Recommend again' }}</UButton>
                 <UButton color="neutral" variant="ghost" size="xs" icon="i-heroicons-trash" @click="deleteContent(video.id, 'video')">Remove</UButton>
               </div>
             </template>
@@ -357,6 +369,7 @@ function formatDuration(seconds: number | null): string {
           <img :src="video.videoThumbnail" class="h-12 w-20 rounded object-cover" />
           <p class="flex-1 truncate">{{ video.videoTitle }}</p>
           <USelect :model-value="overrideFor(video.videoId)" :items="videoRuleOptions" class="min-w-48" size="xs" @update:model-value="updateVideoOverride(video.videoId, String($event))" />
+          <UButton color="primary" variant="soft" icon="i-heroicons-megaphone" class="min-h-11" @click="recommendVideo(video.videoId)">{{ recommendedVideoId === video.videoId ? 'Recommended' : 'Recommend' }}</UButton>
         </div>
       </div>
     </UCard>

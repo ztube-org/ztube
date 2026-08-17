@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { and, count, eq, isNull, lt, or } from 'drizzle-orm'
+import { and, count, eq, inArray, isNull, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/d1'
 import { z } from 'zod'
 import * as schema from './database/schema.ts'
@@ -8,9 +8,8 @@ import { isValidTimeZone, viewingDayAt } from './utils/viewing-day.ts'
 import { parseYouTubeUrl } from './utils/youtube.ts'
 import {
   fetchChannelMetadata,
-  fetchChannelVideos,
   fetchPlaylistMetadata,
-  fetchPlaylistVideos,
+  fetchPlaylistVideosPage,
   fetchVideoMetadata,
   YouTubeApiError,
 } from './utils/youtube-api.ts'
@@ -19,7 +18,6 @@ type UserRole = 'admin' | 'non-admin'
 type CurrentUser = { id: number; email: string; displayName: string | null; role: UserRole }
 type AppEnv = { Bindings: Env; Variables: { user: CurrentUser } }
 type ApiContext = Context<AppEnv>
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const allowanceMinutes = z.number().int().min(0).max(1440).refine(value => value % 15 === 0, 'Must be a 15-minute increment')
 const timeSettingsInput = z.object({
   timeZone: z.string().trim().min(1).refine(isValidTimeZone, 'Invalid IANA time zone'),
@@ -199,6 +197,17 @@ export function createApp(dependencies: AppDependencies = {}) {
     return c.json({ videoRule: await db.query.videoContentRules.findFirst({ where: and(eq(schema.videoContentRules.childId, childId), eq(schema.videoContentRules.videoId, videoId)) }) })
   })
 
+  app.post('/api/admin/children/:id/recommendations', async c => {
+    const { db, childId } = await adminChild(c)
+    const input = z.object({ videoId: z.string().trim().min(1).max(64) }).parse(await c.req.json())
+    if (!await approvedVideoMetadata(db, childId, input.videoId)) throw new HTTPException(404, { message: 'Video is not available from Approved Content' })
+    await db.insert(schema.videoRecommendations).values({ childId, videoId: input.videoId }).onConflictDoUpdate({
+      target: [schema.videoRecommendations.childId, schema.videoRecommendations.videoId],
+      set: { recommendedAt: now(), seenAt: null },
+    })
+    return c.json({ recommended: true })
+  })
+
   app.delete('/api/admin/children/:id/video-rules/:videoId', async c => {
     const { db, childId } = await adminChild(c)
     const videoId = z.string().trim().min(1).max(64).parse(c.req.param('videoId'))
@@ -232,7 +241,12 @@ export function createApp(dependencies: AppDependencies = {}) {
     }
     if (parsed.type === 'video') {
       const item = await fetchVideoMetadata(parsed.id, c.env.YOUTUBE_API_KEY)
-      const [content] = await db.insert(schema.allowedVideos).values({ childId: input.childId, videoId: item.videoId, videoTitle: item.title, videoThumbnail: item.thumbnail, duration: item.duration, channelTitle: item.channelTitle, lastFetchedAt: new Date(), isAvailable: true }).returning()
+      if (isShortDuration(item.duration)) throw new HTTPException(400, { message: 'Videos of 3 minutes or less are not supported' })
+      const [content] = await db.insert(schema.allowedVideos).values({ childId: input.childId, videoId: item.videoId, videoTitle: item.title, videoThumbnail: item.thumbnail, duration: item.duration, channelTitle: item.channelTitle, publishedAt: item.publishedAt, lastFetchedAt: new Date(), isAvailable: true }).returning()
+      await db.insert(schema.videoRecommendations).values({ childId: input.childId, videoId: item.videoId }).onConflictDoUpdate({
+        target: [schema.videoRecommendations.childId, schema.videoRecommendations.videoId],
+        set: { recommendedAt: new Date(), seenAt: null },
+      })
       return c.json({ type: 'video', content })
     }
     if (parsed.type === 'playlist') {
@@ -260,21 +274,58 @@ export function createApp(dependencies: AppDependencies = {}) {
     return c.json({ success: true })
   })
 
+  app.get('/api/child/recommendations/count', async c => {
+    const user = requireViewer(c.get('user'))
+    const db = drizzle(c.env.DB, { schema })
+    const result = await db.select({ count: count() }).from(schema.videoRecommendations).where(and(eq(schema.videoRecommendations.childId, user.id!), isNull(schema.videoRecommendations.seenAt))).get()
+    return c.json({ count: result?.count ?? 0 })
+  })
+
   app.get('/api/child/browse', async c => {
     const user = requireViewer(c.get('user'))
     const db = drizzle(c.env.DB, { schema })
-    const [channels, playlists, videos, settings] = await Promise.all([
+    const [channels, playlists, videos, settings, favoriteRows, progressRows, recommendationRows] = await Promise.all([
       db.query.allowedChannels.findMany({ where: eq(schema.allowedChannels.childId, user.id!) }),
       db.query.allowedPlaylists.findMany({ where: eq(schema.allowedPlaylists.childId, user.id!) }),
       db.query.allowedVideos.findMany({ where: eq(schema.allowedVideos.childId, user.id!) }),
       ensureTimeSettings(db, user.id!),
+      db.query.favoriteVideos.findMany({ where: eq(schema.favoriteVideos.childId, user.id!) }),
+      db.query.playbackProgress.findMany({ where: eq(schema.playbackProgress.childId, user.id!), orderBy: (table, { desc }) => [desc(table.updatedAt)], limit: 10 }),
+      db.query.videoRecommendations.findMany({ where: and(eq(schema.videoRecommendations.childId, user.id!), isNull(schema.videoRecommendations.seenAt)), orderBy: (table, { desc }) => [desc(table.recommendedAt)], limit: 10 }),
     ])
+    const filteredVideos = excludeShortVideos(videos)
+    if (filteredVideos.rejectedVideoIds.length) {
+      await db.delete(schema.allowedVideos).where(and(eq(schema.allowedVideos.childId, user.id), inArray(schema.allowedVideos.videoId, filteredVideos.rejectedVideoIds)))
+    }
+    const favoriteMetadata = await Promise.all(favoriteRows.map(row => approvedVideoMetadata(db, user.id!, row.videoId)))
+    const favorites = favoriteMetadata.filter(item => item !== null)
+    const continueWatching = (await Promise.all(progressRows.map(async progress => await approvedVideoMetadata(db, user.id!, progress.videoId) ? progress : null))).filter(item => item !== null)
+    const recommendations = (await Promise.all(recommendationRows.map(row => approvedVideoMetadata(db, user.id!, row.videoId)))).filter(item => item !== null)
     const day = viewingDayAt(now(), settings.timeZone, settings)
-    const usage = await dailyUsage(db, user.id!, day.localDate)
+    const usage = await dailyUsage(db, user.id, day.localDate)
     return c.json({
-      channels, playlists, videos,
+      channels, playlists, videos: filteredVideos.videos, recommendations, favorites, continueWatching,
+      recommendationCount: recommendations.length,
+      favoriteVideoIds: favorites.map(item => item.videoId),
       watchTime: watchTimeStatus(...effectiveLimits(day.allowanceMinutes, settings.safetyCapMinutes, usage), usage),
     })
+  })
+
+  app.post('/api/child/favorites', async c => {
+    const user = requireViewer(c.get('user'))
+    const input = z.object({ videoId: z.string().trim().min(1).max(64) }).parse(await c.req.json())
+    const db = drizzle(c.env.DB, { schema })
+    if (!await approvedVideoMetadata(db, user.id!, input.videoId)) throw new HTTPException(403, { message: 'Video is not Approved Content' })
+    await db.insert(schema.favoriteVideos).values({ childId: user.id!, videoId: input.videoId }).onConflictDoNothing()
+    return c.json({ favorite: true })
+  })
+
+  app.delete('/api/child/favorites/:videoId', async c => {
+    const user = requireViewer(c.get('user'))
+    const videoId = z.string().trim().min(1).max(64).parse(c.req.param('videoId'))
+    const db = drizzle(c.env.DB, { schema })
+    await db.delete(schema.favoriteVideos).where(and(eq(schema.favoriteVideos.childId, user.id!), eq(schema.favoriteVideos.videoId, videoId)))
+    return c.json({ favorite: false })
   })
 
   app.post('/api/child/playback-authorizations', async c => {
@@ -290,7 +341,7 @@ export function createApp(dependencies: AppDependencies = {}) {
       ),
     })
     const override = await db.query.videoContentRules.findFirst({ where: and(eq(schema.videoContentRules.childId, user.id!), eq(schema.videoContentRules.videoId, input.videoId)) })
-    const channels = await db.select({ id: schema.allowedChannels.id, contentRule: schema.allowedChannels.contentRule })
+    const channels = await db.select({ id: schema.allowedChannels.id, contentRule: schema.allowedChannels.contentRule, videoId: schema.channelVideos.videoId, videoTitle: schema.channelVideos.videoTitle, videoThumbnail: schema.channelVideos.videoThumbnail, duration: schema.channelVideos.duration, channelTitle: schema.channelVideos.channelTitle, publishedAt: schema.channelVideos.publishedAt })
       .from(schema.allowedChannels)
       .innerJoin(schema.channelVideos, eq(schema.channelVideos.channelId, schema.allowedChannels.channelId))
       .where(and(
@@ -299,7 +350,7 @@ export function createApp(dependencies: AppDependencies = {}) {
         eq(schema.channelVideos.videoId, input.videoId),
       ))
       .all()
-    const playlists = await db.select({ id: schema.allowedPlaylists.id, contentRule: schema.allowedPlaylists.contentRule })
+    const playlists = await db.select({ id: schema.allowedPlaylists.id, contentRule: schema.allowedPlaylists.contentRule, videoId: schema.playlistVideos.videoId, videoTitle: schema.playlistVideos.videoTitle, videoThumbnail: schema.playlistVideos.videoThumbnail, duration: schema.playlistVideos.duration, channelTitle: schema.playlistVideos.channelTitle, publishedAt: schema.playlistVideos.publishedAt })
       .from(schema.allowedPlaylists)
       .innerJoin(schema.playlistVideos, eq(schema.playlistVideos.playlistId, schema.allowedPlaylists.playlistId))
       .where(and(
@@ -312,6 +363,8 @@ export function createApp(dependencies: AppDependencies = {}) {
     if (!directMatches.length && !channels.length && !playlists.length) {
       throw new HTTPException(403, { message: 'Video is not Approved Content' })
     }
+    const durations = [...directMatches.map(item => item.duration), ...channels.map(item => item.duration), ...playlists.map(item => item.duration)]
+    if (durations.some(isShortDuration)) throw new HTTPException(403, { message: 'Videos of 3 minutes or less are not supported' })
     const settings = await ensureTimeSettings(db, user.id!)
     const day = viewingDayAt(now(), settings.timeZone, settings)
     const directRules = [...directMatches.map(item => item.contentRule), ...(override ? [override.contentRule] : [])]
@@ -328,11 +381,16 @@ export function createApp(dependencies: AppDependencies = {}) {
     const sessionId = crypto.randomUUID()
     const authorizedAt = now()
     const leaseExpiresAt = new Date(authorizedAt.getTime() + PLAYBACK_LEASE_SECONDS * 1000)
+    const [progress, favorite] = await Promise.all([
+      db.query.playbackProgress.findFirst({ where: and(eq(schema.playbackProgress.childId, user.id!), eq(schema.playbackProgress.videoId, input.videoId)) }),
+      db.query.favoriteVideos.findFirst({ where: and(eq(schema.favoriteVideos.childId, user.id!), eq(schema.favoriteVideos.videoId, input.videoId)) }),
+    ])
     await c.env.DB.batch([
       c.env.DB.prepare(`UPDATE playback_sessions SET ended_at = ?, last_state = 'ended' WHERE child_id = ? AND ended_at IS NULL`).bind(epochSeconds(authorizedAt), user.id!),
-      c.env.DB.prepare(`INSERT INTO playback_sessions (id, child_id, viewing_day, last_sequence, last_state, last_acknowledged_at, lease_expires_at, usage_bucket) VALUES (?, ?, ?, 0, 'paused', ?, ?, ?)`).bind(
-        sessionId, user.id!, day.localDate, epochSeconds(authorizedAt), epochSeconds(leaseExpiresAt), usageBucket,
+      c.env.DB.prepare(`INSERT INTO playback_sessions (id, child_id, viewing_day, last_sequence, last_state, last_acknowledged_at, lease_expires_at, usage_bucket, video_id) VALUES (?, ?, ?, 0, 'paused', ?, ?, ?, ?)`).bind(
+        sessionId, user.id!, day.localDate, epochSeconds(authorizedAt), epochSeconds(leaseExpiresAt), usageBucket, input.videoId,
       ),
+      c.env.DB.prepare('UPDATE video_recommendations SET seen_at = ? WHERE child_id = ? AND video_id = ? AND seen_at IS NULL').bind(epochSeconds(authorizedAt), user.id!, input.videoId),
     ])
     return c.json({
       authorization: {
@@ -344,6 +402,8 @@ export function createApp(dependencies: AppDependencies = {}) {
         remainingSeconds,
         heartbeatIntervalSeconds: HEARTBEAT_INTERVAL_SECONDS,
         leaseExpiresAt: leaseExpiresAt.toISOString(),
+        resumeAt: progress?.positionSeconds ?? 0,
+        favorite: Boolean(favorite),
       },
     })
   })
@@ -359,7 +419,7 @@ export function createApp(dependencies: AppDependencies = {}) {
 
   app.post('/api/child/playback-authorizations/:id/heartbeats', async c => {
     const user = requireViewer(c.get('user'))
-    const input = z.object({ sequence: z.number().int().positive(), state: playbackState }).parse(await c.req.json())
+    const input = z.object({ sequence: z.number().int().positive(), state: playbackState, positionSeconds: z.number().int().min(0).max(86400).default(0) }).parse(await c.req.json())
     const db = drizzle(c.env.DB, { schema })
     const session = await db.query.playbackSessions.findFirst({ where: and(eq(schema.playbackSessions.id, c.req.param('id')), eq(schema.playbackSessions.childId, user.id!)) })
     if (!session) throw new HTTPException(404, { message: 'Playback Authorization not found' })
@@ -419,6 +479,24 @@ export function createApp(dependencies: AppDependencies = {}) {
     const authorized = accepted && updatedSession?.endedAt === null && usedSeconds < limitSeconds
     if (accepted && !authorized && updatedSession?.endedAt === null) {
       await db.update(schema.playbackSessions).set({ lastState: 'ended', endedAt: acknowledgedAt }).where(and(eq(schema.playbackSessions.id, session.id), isNull(schema.playbackSessions.endedAt)))
+    }
+    if (accepted && session.videoId) {
+      const metadata = await approvedVideoMetadata(db, user.id!, session.videoId)
+      const duration = metadata?.duration ?? 0
+      const completed = input.state === 'ended' || (duration > 0 && (input.positionSeconds >= duration * 0.9 || duration - input.positionSeconds <= 30))
+      if (completed) {
+        await db.delete(schema.playbackProgress).where(and(eq(schema.playbackProgress.childId, user.id!), eq(schema.playbackProgress.videoId, session.videoId)))
+      } else if (metadata && input.positionSeconds >= 30 && duration > 0) {
+        await db.insert(schema.playbackProgress).values({
+          childId: user.id!, videoId: session.videoId, positionSeconds: input.positionSeconds, duration,
+          videoTitle: metadata.videoTitle, videoThumbnail: metadata.videoThumbnail, channelTitle: metadata.channelTitle,
+          publishedAt: metadata.publishedAt, updatedAt: acknowledgedAt,
+        }).onConflictDoUpdate({
+          target: [schema.playbackProgress.childId, schema.playbackProgress.videoId],
+          set: { positionSeconds: input.positionSeconds, duration, videoTitle: metadata.videoTitle, videoThumbnail: metadata.videoThumbnail, channelTitle: metadata.channelTitle, publishedAt: metadata.publishedAt, updatedAt: acknowledgedAt },
+        })
+        await c.env.DB.prepare('DELETE FROM playback_progress WHERE child_id = ? AND id NOT IN (SELECT id FROM playback_progress WHERE child_id = ? ORDER BY updated_at DESC LIMIT 10)').bind(user.id!, user.id!).run()
+      }
     }
     return c.json({
       accepted,
@@ -514,81 +592,90 @@ async function adminChild(c: ApiContext) {
   return { db, childId, child }
 }
 
+async function approvedVideoMetadata(db: ReturnType<typeof drizzle<typeof schema>>, childId: number, videoId: string) {
+  const direct = await db.query.allowedVideos.findFirst({ where: and(eq(schema.allowedVideos.childId, childId), eq(schema.allowedVideos.videoId, videoId), eq(schema.allowedVideos.isAvailable, true)) })
+  if (direct) return direct
+  const playlist = await db.select({ videoId: schema.playlistVideos.videoId, videoTitle: schema.playlistVideos.videoTitle, videoThumbnail: schema.playlistVideos.videoThumbnail, duration: schema.playlistVideos.duration, channelTitle: schema.playlistVideos.channelTitle, publishedAt: schema.playlistVideos.publishedAt })
+    .from(schema.allowedPlaylists).innerJoin(schema.playlistVideos, eq(schema.playlistVideos.playlistId, schema.allowedPlaylists.playlistId))
+    .where(and(eq(schema.allowedPlaylists.childId, childId), eq(schema.allowedPlaylists.isAvailable, true), eq(schema.playlistVideos.videoId, videoId))).get()
+  if (playlist) return playlist
+  return await db.select({ videoId: schema.channelVideos.videoId, videoTitle: schema.channelVideos.videoTitle, videoThumbnail: schema.channelVideos.videoThumbnail, duration: schema.channelVideos.duration, channelTitle: schema.channelVideos.channelTitle, publishedAt: schema.channelVideos.publishedAt })
+    .from(schema.allowedChannels).innerJoin(schema.channelVideos, eq(schema.channelVideos.channelId, schema.allowedChannels.channelId))
+    .where(and(eq(schema.allowedChannels.childId, childId), eq(schema.allowedChannels.isAvailable, true), eq(schema.channelVideos.videoId, videoId))).get() ?? null
+}
+
+async function favoriteVideoIdsFor(db: ReturnType<typeof drizzle<typeof schema>>, childId: number, videos: Array<{ videoId: string }>) {
+  if (!videos.length) return []
+  const rows = await db.query.favoriteVideos.findMany({ where: and(eq(schema.favoriteVideos.childId, childId), inArray(schema.favoriteVideos.videoId, videos.map(video => video.videoId))) })
+  return rows.map(row => row.videoId)
+}
+
 async function channelOrPlaylist(c: ApiContext, kind: 'channel' | 'playlist') {
   const user = requireViewer(c.get('user'))
   const id = numericId(c.req.param('id'))
+  const pageToken = z.string().trim().min(1).max(500).optional().parse(c.req.query('pageToken'))
+  const page = z.coerce.number().int().min(0).max(1000).default(0).parse(c.req.query('page') ?? '0')
+  const refresh = c.req.query('refresh') === 'true'
   const db = drizzle(c.env.DB, { schema })
+
   if (kind === 'channel') {
-    const item = await db.query.allowedChannels.findFirst({ where: and(eq(schema.allowedChannels.id, id), eq(schema.allowedChannels.childId, user.id!)) })
+    const item = await db.query.allowedChannels.findFirst({ where: and(eq(schema.allowedChannels.id, id), eq(schema.allowedChannels.childId, user.id)) })
     if (!item) throw new HTTPException(404, { message: 'channel not found' })
-    let videos = await db.query.channelVideos.findMany({ where: eq(schema.channelVideos.channelId, item.channelId), orderBy: (table, { asc }) => [asc(table.position)] })
-    const refreshClaimed = await claimRefresh(db, 'channel', item.id, item.lastFetchedAt, videos[0]?.fetchedAt)
-    if (refreshClaimed && videos.length === 0) {
-      await refreshVideos(c.env, kind, id, item.channelId, item.uploadsPlaylistId)
-      videos = await db.query.channelVideos.findMany({ where: eq(schema.channelVideos.channelId, item.channelId), orderBy: (table, { asc }) => [asc(table.position)] })
-    } else if (refreshClaimed) {
-      c.executionCtx.waitUntil(refreshVideos(c.env, kind, id, item.channelId, item.uploadsPlaylistId))
+    if (!refresh && !pageToken) {
+      const videos = await db.query.channelVideos.findMany({ where: eq(schema.channelVideos.channelId, item.channelId), orderBy: (table, { asc }) => [asc(table.position)], limit: 50 })
+      const favoriteVideoIds = await favoriteVideoIdsFor(db, user.id!, videos)
+      return c.json({ channel: { id: item.id, channelId: item.channelId, title: item.channelTitle, thumbnail: item.channelThumbnail, isAvailable: true, contentRule: item.contentRule }, videos, favoriteVideoIds, nextPageToken: null, cached: true })
     }
-    const refreshedItem = await db.query.allowedChannels.findFirst({ where: eq(schema.allowedChannels.id, id) })
-    return c.json({ channel: { id: item.id, channelId: item.channelId, title: item.channelTitle, thumbnail: item.channelThumbnail, isAvailable: refreshedItem?.isAvailable ?? item.isAvailable, contentRule: item.contentRule }, videos })
+    const result = await fetchPlaylistVideosPage(item.uploadsPlaylistId, c.env.YOUTUBE_API_KEY, pageToken)
+    const { videos, rejectedVideoIds } = excludeShortVideos(result.videos)
+    await cacheChannelVideoPage(db, item.id, item.channelId, videos, rejectedVideoIds, page * 50)
+    const favoriteVideoIds = await favoriteVideoIdsFor(db, user.id!, videos)
+    return c.json({ channel: { id: item.id, channelId: item.channelId, title: item.channelTitle, thumbnail: item.channelThumbnail, isAvailable: true, contentRule: item.contentRule }, videos: presentVideos(videos), favoriteVideoIds, nextPageToken: result.nextPageToken })
   }
-  const item = await db.query.allowedPlaylists.findFirst({ where: and(eq(schema.allowedPlaylists.id, id), eq(schema.allowedPlaylists.childId, user.id!)) })
+
+  const item = await db.query.allowedPlaylists.findFirst({ where: and(eq(schema.allowedPlaylists.id, id), eq(schema.allowedPlaylists.childId, user.id)) })
   if (!item) throw new HTTPException(404, { message: 'playlist not found' })
-  let videos = await db.query.playlistVideos.findMany({ where: eq(schema.playlistVideos.playlistId, item.playlistId), orderBy: (table, { asc }) => [asc(table.position)] })
-  const refreshClaimed = await claimRefresh(db, 'playlist', item.id, item.lastFetchedAt, videos[0]?.fetchedAt)
-  if (refreshClaimed && videos.length === 0) {
-    await refreshVideos(c.env, kind, id, item.playlistId)
-    videos = await db.query.playlistVideos.findMany({ where: eq(schema.playlistVideos.playlistId, item.playlistId), orderBy: (table, { asc }) => [asc(table.position)] })
-  } else if (refreshClaimed) {
-    c.executionCtx.waitUntil(refreshVideos(c.env, kind, id, item.playlistId))
+  if (!refresh && !pageToken) {
+    const videos = await db.query.playlistVideos.findMany({ where: eq(schema.playlistVideos.playlistId, item.playlistId), orderBy: (table, { asc }) => [asc(table.position)], limit: 50 })
+    const favoriteVideoIds = await favoriteVideoIdsFor(db, user.id!, videos)
+    return c.json({ playlist: { id: item.id, playlistId: item.playlistId, title: item.playlistTitle, thumbnail: item.playlistThumbnail, isAvailable: true, contentRule: item.contentRule }, videos, favoriteVideoIds, nextPageToken: null, cached: true })
   }
-  const refreshedItem = await db.query.allowedPlaylists.findFirst({ where: eq(schema.allowedPlaylists.id, id) })
-  return c.json({ playlist: { id: item.id, playlistId: item.playlistId, title: item.playlistTitle, thumbnail: item.playlistThumbnail, isAvailable: refreshedItem?.isAvailable ?? item.isAvailable, contentRule: item.contentRule }, videos })
+  const result = await fetchPlaylistVideosPage(item.playlistId, c.env.YOUTUBE_API_KEY, pageToken)
+  const { videos, rejectedVideoIds } = excludeShortVideos(result.videos)
+  await cachePlaylistVideoPage(db, item.id, item.playlistId, videos, rejectedVideoIds, page * 50)
+  const favoriteVideoIds = await favoriteVideoIdsFor(db, user.id!, videos)
+  return c.json({ playlist: { id: item.id, playlistId: item.playlistId, title: item.playlistTitle, thumbnail: item.playlistThumbnail, isAvailable: true, contentRule: item.contentRule }, videos: presentVideos(videos), favoriteVideoIds, nextPageToken: result.nextPageToken })
 }
 
-async function refreshVideos(env: Env, kind: 'channel' | 'playlist', id: number, externalId: string, uploadsPlaylistId?: string) {
-  const db = drizzle(env.DB, { schema })
-  const allowedTable = kind === 'channel' ? schema.allowedChannels : schema.allowedPlaylists
-  const videoTable = kind === 'channel' ? schema.channelVideos : schema.playlistVideos
-  const videoIdColumn = kind === 'channel' ? schema.channelVideos.channelId : schema.playlistVideos.playlistId
-  try {
-    const fresh = kind === 'channel'
-      ? uploadsPlaylistId
-        ? await fetchPlaylistVideos(uploadsPlaylistId, env.YOUTUBE_API_KEY)
-        : await fetchChannelVideos(externalId, env.YOUTUBE_API_KEY)
-      : await fetchPlaylistVideos(externalId, env.YOUTUBE_API_KEY)
-    await db.delete(videoTable).where(eq(videoIdColumn, externalId))
-    if (fresh.length) await db.insert(videoTable).values(fresh.map((video, position) => ({ [kind === 'channel' ? 'channelId' : 'playlistId']: externalId, videoId: video.videoId, position, videoTitle: video.title, videoThumbnail: video.thumbnail, duration: video.duration, channelTitle: video.channelTitle })))
-    const allowedExternalId = kind === 'channel' ? schema.allowedChannels.channelId : schema.allowedPlaylists.playlistId
-    await db.update(allowedTable).set({ lastFetchedAt: new Date(), isAvailable: true }).where(eq(allowedExternalId, externalId))
-  } catch (error) {
-    console.error(JSON.stringify({ event: 'youtube_refresh_failed', kind, id, message: error instanceof Error ? error.message : 'unknown' }))
-    await db.update(allowedTable).set({ lastFetchedAt: null, isAvailable: false }).where(eq(allowedTable.id, id))
+function isShortDuration(duration: number | null) {
+  return duration !== null && duration <= 180
+}
+
+function excludeShortVideos<T extends { videoId: string; duration: number | null }>(videos: T[]) {
+  return {
+    videos: videos.filter(video => !isShortDuration(video.duration)),
+    rejectedVideoIds: videos.filter(video => isShortDuration(video.duration)).map(video => video.videoId),
   }
 }
 
-async function claimRefresh(
-  db: ReturnType<typeof drizzle<typeof schema>>,
-  kind: 'channel' | 'playlist',
-  id: number,
-  lastFetchedAt: Date | null,
-  cacheFetchedAt: Date | null | undefined,
-) {
-  const cutoff = new Date(Date.now() - CACHE_TTL_MS)
-  if (cacheFetchedAt && cacheFetchedAt > cutoff) {
-    if (!lastFetchedAt || lastFetchedAt < cacheFetchedAt) {
-      const table = kind === 'channel' ? schema.allowedChannels : schema.allowedPlaylists
-      await db.update(table).set({ lastFetchedAt: cacheFetchedAt, isAvailable: true }).where(eq(table.id, id))
-    }
-    return false
-  }
-  if (lastFetchedAt && lastFetchedAt >= cutoff) return false
-  const table = kind === 'channel' ? schema.allowedChannels : schema.allowedPlaylists
-  const claimed = await db.update(table)
-    .set({ lastFetchedAt: new Date() })
-    .where(and(eq(table.id, id), or(isNull(table.lastFetchedAt), lt(table.lastFetchedAt, cutoff))))
-    .returning({ id: table.id })
-  return claimed.length > 0
+function presentVideos(videos: Awaited<ReturnType<typeof fetchPlaylistVideosPage>>['videos']) {
+  return videos.map(video => ({ videoId: video.videoId, videoTitle: video.title, videoThumbnail: video.thumbnail, duration: video.duration, channelTitle: video.channelTitle, publishedAt: video.publishedAt }))
+}
+
+async function cacheChannelVideoPage(db: ReturnType<typeof drizzle<typeof schema>>, allowedId: number, channelId: string, videos: Awaited<ReturnType<typeof fetchPlaylistVideosPage>>['videos'], rejectedVideoIds: string[], positionOffset: number) {
+  const videoIds = [...videos.map(video => video.videoId), ...rejectedVideoIds]
+  if (videoIds.length) await db.delete(schema.channelVideos).where(and(eq(schema.channelVideos.channelId, channelId), inArray(schema.channelVideos.videoId, videoIds)))
+  const rows = videos.map((video, index) => ({ channelId, videoId: video.videoId, position: positionOffset + index, videoTitle: video.title, videoThumbnail: video.thumbnail, duration: video.duration, channelTitle: video.channelTitle, publishedAt: video.publishedAt }))
+  for (let offset = 0; offset < rows.length; offset += 10) await db.insert(schema.channelVideos).values(rows.slice(offset, offset + 10))
+  await db.update(schema.allowedChannels).set({ lastFetchedAt: new Date(), isAvailable: true }).where(eq(schema.allowedChannels.id, allowedId))
+}
+
+async function cachePlaylistVideoPage(db: ReturnType<typeof drizzle<typeof schema>>, allowedId: number, playlistId: string, videos: Awaited<ReturnType<typeof fetchPlaylistVideosPage>>['videos'], rejectedVideoIds: string[], positionOffset: number) {
+  const videoIds = [...videos.map(video => video.videoId), ...rejectedVideoIds]
+  if (videoIds.length) await db.delete(schema.playlistVideos).where(and(eq(schema.playlistVideos.playlistId, playlistId), inArray(schema.playlistVideos.videoId, videoIds)))
+  const rows = videos.map((video, index) => ({ playlistId, videoId: video.videoId, position: positionOffset + index, videoTitle: video.title, videoThumbnail: video.thumbnail, duration: video.duration, channelTitle: video.channelTitle, publishedAt: video.publishedAt }))
+  for (let offset = 0; offset < rows.length; offset += 10) await db.insert(schema.playlistVideos).values(rows.slice(offset, offset + 10))
+  await db.update(schema.allowedPlaylists).set({ lastFetchedAt: new Date(), isAvailable: true }).where(eq(schema.allowedPlaylists.id, allowedId))
 }
 
 async function resolveUser(request: Request, env: Env): Promise<CurrentUser> {

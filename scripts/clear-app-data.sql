@@ -1,6 +1,9 @@
 PRAGMA foreign_keys = ON;
 
 DELETE FROM `playback_sessions`;
+DELETE FROM `playback_progress`;
+DELETE FROM `favorite_videos`;
+DELETE FROM `video_recommendations`;
 DELETE FROM `daily_usage_summaries`;
 DELETE FROM `video_content_rules`;
 DELETE FROM `allowed_videos`;
@@ -20,5 +23,8 @@ WHERE `name` IN (
   'channel_videos',
   'playlist_videos',
   'daily_usage_summaries',
-  'video_content_rules'
+  'video_content_rules',
+  'favorite_videos',
+  'playback_progress',
+  'video_recommendations'
 );

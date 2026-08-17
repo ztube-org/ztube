@@ -13,7 +13,7 @@ A viewer profile automatically created for every authenticated account, includin
 _Avoid_: Manually created account, device
 
 **Approved Content**:
-A channel, playlist, or individual video that the Admin has explicitly made available to a child.
+A channel, playlist, or individual video that the Admin has explicitly made available to a child. Videos of three minutes or less are excluded, including Shorts found inside an approved channel or playlist.
 _Avoid_: Allowed URL, safe content
 
 **Restricted Watch Time**:
@@ -49,8 +49,20 @@ A calendar day in the fixed time zone selected for the child by the Admin. Allow
 _Avoid_: Rolling 24 hours, device day, server day
 
 **Daily Usage Summary**:
-A child's aggregate record of Restricted Watch Time and allowance-exempt watch time for one Viewing Day. It is retained for the lifetime of the Child and deleted with the Child; no per-video viewing history is retained.
+A child's aggregate record of Restricted Watch Time and allowance-exempt watch time for one Viewing Day. It is retained for the lifetime of the Child and deleted with the Child; it does not identify watched videos.
 _Avoid_: Watch history, activity log
+
+**Favorite**:
+An Approved Content video that a Child has marked for quick access. Favorites are private to the Child and do not make unavailable content playable.
+_Avoid_: Admin approval, playlist
+
+**Continue Watching**:
+The Child's ten most recently updated unfinished videos, retained only after 30 seconds of playback and removed when completed. It is navigation state rather than completed viewing history.
+_Avoid_: Watch history, activity log
+
+**Recommendation**:
+An Approved Content video that an Admin highlights for one Child. An unseen Recommendation appears in New for You until that Child opens it; recommending it again makes it unseen again.
+_Avoid_: Favorite, notification, additional approval
 
 **Playback Authorization**:
 Confirmation that a requested video belongs to the child's Approved Content and is currently permitted by the applicable viewing allowance.

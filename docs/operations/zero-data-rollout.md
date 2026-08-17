@@ -21,4 +21,4 @@ Use `npm run db:clear -- --local` only when deliberately resetting the local Wra
 
 ## What is removed
 
-The operation removes all Children, Approved Content, cached channel and playlist videos, Child time settings, Content Rules, Daily Usage Summaries, Temporary Extensions, and playback sessions. It preserves the schema and D1 migration history so the deployed application remains at the applied schema version.
+The operation removes all Children, Approved Content, cached channel and playlist videos, Favorites, Recommendations, Continue Watching progress, Child time settings, Content Rules, Daily Usage Summaries, Temporary Extensions, and playback sessions. It preserves the schema and D1 migration history so the deployed application remains at the applied schema version.

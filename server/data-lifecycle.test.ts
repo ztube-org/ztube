@@ -35,6 +35,11 @@ async function fixture() {
     '0006_video_content_rules.sql',
     '0007_parent_viewing_day_interventions.sql',
     '0008_two-role_accounts.sql',
+    '0009_video_classifications.sql',
+    '0010_drop_video_classifications.sql',
+    '0011_video_published_at.sql',
+    '0012_favorites_and_playback_progress.sql',
+    '0013_video_recommendations.sql',
   ]) await d1.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), 'utf8'))
   d1.sqlite.exec(`
     INSERT INTO children (id, email) VALUES (10, 'child@example.com'), (20, 'other-child@example.com');

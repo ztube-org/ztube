@@ -24,6 +24,10 @@ export function parseYouTubeUrl(url: string): ParsedYouTubeUrl | null {
       const videoId = urlObj.searchParams.get('v')
       if (videoId) return { type: 'video', id: videoId }
 
+      // youtube.com/shorts/VIDEO_ID (parsed so the server can reject it explicitly)
+      const shortMatch = urlObj.pathname.match(/^\/shorts\/([^/]+)/)
+      if (shortMatch) return { type: 'video', id: shortMatch[1] }
+
       // youtube.com/playlist?list=PLAYLIST_ID
       const playlistId = urlObj.searchParams.get('list')
       if (playlistId && !videoId) return { type: 'playlist', id: playlistId }

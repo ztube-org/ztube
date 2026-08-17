@@ -1,5 +1,7 @@
 export interface YouTubePlayer {
   setPlaybackRate(rate: number): void
+  getCurrentTime?(): number
+  seekTo?(seconds: number, allowSeekAhead?: boolean): void
   pauseVideo?(): void
   destroy?(): void
 }
@@ -66,8 +68,9 @@ export async function createYouTubePlayer(elementId: string, options: YouTubePla
 
 export function createPlaybackReporter(options: {
   initialRemainingSeconds: number
-  heartbeat: (sequence: number, state: PlaybackState) => Promise<{ remainingSeconds: number; authorized: boolean }>
+  heartbeat: (sequence: number, state: PlaybackState, positionSeconds: number) => Promise<{ remainingSeconds: number; authorized: boolean }>
   pause: () => void
+  position?: () => number
   onRemaining: (seconds: number) => void
   document?: Pick<Document, 'hidden' | 'pictureInPictureElement' | 'addEventListener' | 'removeEventListener'>
   intervalMs?: number
@@ -83,7 +86,7 @@ export function createPlaybackReporter(options: {
   const send = async () => {
     if (stopped) return
     try {
-      const response = await options.heartbeat(++sequence, state)
+      const response = await options.heartbeat(++sequence, state, Math.max(0, Math.floor(options.position?.() ?? 0)))
       if (stopped) return
       remaining = response.remainingSeconds
       options.onRemaining(remaining)

@@ -38,8 +38,37 @@ export const playbackSessions = sqliteTable('playback_sessions', {
   lastAcknowledgedAt: integer('last_acknowledged_at', { mode: 'timestamp' }).notNull(),
   leaseExpiresAt: integer('lease_expires_at', { mode: 'timestamp' }).notNull(),
   usageBucket: text('usage_bucket').notNull().default('restricted'),
+  videoId: text('video_id'),
   endedAt: integer('ended_at', { mode: 'timestamp' }),
 })
+
+export const favoriteVideos = sqliteTable('favorite_videos', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  childId: integer('child_id').notNull().references(() => children.id, { onDelete: 'cascade' }),
+  videoId: text('video_id').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+}, table => [uniqueIndex('favorite_videos_child_video').on(table.childId, table.videoId)])
+
+export const videoRecommendations = sqliteTable('video_recommendations', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  childId: integer('child_id').notNull().references(() => children.id, { onDelete: 'cascade' }),
+  videoId: text('video_id').notNull(),
+  recommendedAt: integer('recommended_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  seenAt: integer('seen_at', { mode: 'timestamp' }),
+}, table => [uniqueIndex('video_recommendations_child_video').on(table.childId, table.videoId)])
+
+export const playbackProgress = sqliteTable('playback_progress', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  childId: integer('child_id').notNull().references(() => children.id, { onDelete: 'cascade' }),
+  videoId: text('video_id').notNull(),
+  positionSeconds: integer('position_seconds').notNull(),
+  duration: integer('duration').notNull(),
+  videoTitle: text('video_title').notNull(),
+  videoThumbnail: text('video_thumbnail'),
+  channelTitle: text('channel_title'),
+  publishedAt: integer('published_at', { mode: 'timestamp' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+}, table => [uniqueIndex('playback_progress_child_video').on(table.childId, table.videoId)])
 
 // Allowed channels
 export const allowedChannels = sqliteTable('allowed_channels', {
@@ -77,6 +106,7 @@ export const allowedVideos = sqliteTable('allowed_videos', {
   videoThumbnail: text('video_thumbnail'),
   duration: integer('duration'),
   channelTitle: text('channel_title'),
+  publishedAt: integer('published_at', { mode: 'timestamp' }),
   lastFetchedAt: integer('last_fetched_at', { mode: 'timestamp' }),
   isAvailable: integer('is_available', { mode: 'boolean' }).default(true),
   contentRule: text('content_rule').notNull().default('restricted'),
@@ -107,6 +137,7 @@ export const channelVideos = sqliteTable('channel_videos', {
   videoThumbnail: text('video_thumbnail'),
   duration: integer('duration'),
   channelTitle: text('channel_title'),
+  publishedAt: integer('published_at', { mode: 'timestamp' }),
   fetchedAt: integer('fetched_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 })
 
@@ -120,6 +151,7 @@ export const playlistVideos = sqliteTable('playlist_videos', {
   videoThumbnail: text('video_thumbnail'),
   duration: integer('duration'),
   channelTitle: text('channel_title'),
+  publishedAt: integer('published_at', { mode: 'timestamp' }),
   fetchedAt: integer('fetched_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 })
 

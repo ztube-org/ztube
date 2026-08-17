@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import { watch } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
-import { useAuth } from '../src/api'
+import { useApi, useAuth } from '../src/api'
 
 const route = useRoute()
 const { user, logout } = useAuth()
+const { data: recommendations, refresh: refreshRecommendations } = useApi<{ count: number }>('/api/child/recommendations/count')
+watch(() => route.fullPath, () => { void refreshRecommendations() })
 </script>
 
 <template>
@@ -18,6 +21,10 @@ const { user, logout } = useAuth()
           ZTube
         </RouterLink>
         <div v-if="user" class="flex min-w-0 items-center gap-2 sm:gap-4">
+          <RouterLink v-if="recommendations?.count" to="/browse" class="flex min-h-11 items-center gap-1 rounded-full bg-blue-50 px-3 text-sm font-semibold text-[#065fd4]">
+            <UIcon name="i-heroicons-megaphone" class="h-5 w-5" />
+            New for You · {{ recommendations.count }}
+          </RouterLink>
           <span class="hidden max-w-64 truncate text-sm text-gray-600 sm:block">{{ user.displayName || user.email }}</span>
           <UButton color="neutral" variant="ghost" icon="i-heroicons-arrow-right-start-on-rectangle" @click="logout">Logout</UButton>
         </div>
