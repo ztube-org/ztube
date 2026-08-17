@@ -48,6 +48,22 @@ _Avoid_: Login session, device allowance
 A calendar day in the fixed time zone selected for the child by the Admin. Allowances reset at local midnight, and playback continuing across midnight begins consuming the new day's allowance.
 _Avoid_: Rolling 24 hours, device day, server day
 
+**Viewing Window**:
+The recurring local-time interval during which a Child may receive Playback Authorization on every Viewing Day.
+_Avoid_: Bedtime, device schedule
+
+**Break Cycle**:
+The active playback accumulated across both usage buckets since the Child most recently completed a Required Break.
+_Avoid_: Video duration, playback session
+
+**Required Break**:
+A configured period during which Playback Authorization is unavailable after a Break Cycle reaches its maximum.
+_Avoid_: Paused video, exhausted allowance
+
+**Viewing Pause**:
+An Admin intervention that blocks all playback for the rest of the current Viewing Day unless the Admin resumes it.
+_Avoid_: Permanent disable, player pause
+
 **Daily Usage Summary**:
 A child's aggregate record of Restricted Watch Time and allowance-exempt watch time for one Viewing Day. It is retained for the lifetime of the Child and deleted with the Child; it does not identify watched videos.
 _Avoid_: Watch history, activity log
@@ -67,3 +83,7 @@ _Avoid_: Favorite, notification, additional approval
 **Playback Authorization**:
 Confirmation that a requested video belongs to the child's Approved Content and is currently permitted by the applicable viewing allowance.
 _Avoid_: URL validation, player check
+
+**Approved Content Tag**:
+A short Admin-defined label used to organize a Child's Approved Content without changing its availability or Content Rule.
+_Avoid_: Category, Content Rule

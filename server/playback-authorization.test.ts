@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import { createApp } from './app.ts'
+import { syncApprovedContent } from './utils/content-sync.ts'
 
 type Identity = { id: number; email: string; displayName: string | null; role: 'admin' | 'non-admin' }
 
@@ -53,13 +54,14 @@ async function fixture(identity: Identity, now = new Date('2026-08-16T12:00:00.0
   await d1.exec(await readFile(new URL('../migrations/0012_favorites_and_playback_progress.sql', import.meta.url), 'utf8'))
   await d1.exec(await readFile(new URL('../migrations/0013_video_recommendations.sql', import.meta.url), 'utf8'))
   await d1.exec(await readFile(new URL('../migrations/0014_video_descriptions.sql', import.meta.url), 'utf8'))
+  await d1.exec(await readFile(new URL('../migrations/0015_library_routines_and_profiles.sql', import.meta.url), 'utf8'))
   d1.sqlite.exec(`
     INSERT INTO children (id, email) VALUES (10, 'child@example.com'), (20, 'other-child@example.com');
   `)
   const app = createApp({ now: () => now, resolveUser: async () => identity })
   const env = { DB: d1 as unknown as D1Database, YOUTUBE_API_KEY: 'test-key' } as Env
   return {
-    d1,
+    d1, env,
     request(path: string, init: RequestInit = {}) { return app.request(path, init, env) },
     authorize(videoId: string, extra: Record<string, unknown> = {}) {
       return app.request('/api/child/playback-authorizations', {
@@ -70,6 +72,31 @@ async function fixture(identity: Identity, now = new Date('2026-08-16T12:00:00.0
 }
 
 const child: Identity = { id: 10, email: 'child@example.com', displayName: null, role: 'non-admin' }
+
+test('background sync follows stored page tokens and honors the freshness TTL', async () => {
+  const { d1, env } = await fixture(child)
+  d1.sqlite.exec("INSERT INTO allowed_playlists (id, child_id, playlist_id, playlist_title, is_available) VALUES (90, 10, 'library', 'Library', 1)")
+  const originalFetch = globalThis.fetch
+  let firstPage = true
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input))
+    if (url.pathname.endsWith('/playlists')) return Response.json({ items: [{ id: 'library', snippet: { title: 'Fresh Library', thumbnails: {} } }] })
+    if (url.pathname.endsWith('/playlistItems')) {
+      const videoId = url.searchParams.get('pageToken') ? 'older' : 'latest'
+      firstPage = !url.searchParams.get('pageToken')
+      return Response.json({ items: [{ contentDetails: { videoId }, snippet: { title: videoId, thumbnails: {}, channelTitle: 'Channel' } }], nextPageToken: firstPage ? 'next' : undefined })
+    }
+    const id = url.searchParams.get('id') ?? ''
+    return Response.json({ items: [{ id, snippet: { title: id }, contentDetails: { duration: 'PT10M' } }] })
+  }
+  try {
+    assert.deepEqual(await syncApprovedContent(env, { now: new Date('2026-08-17T12:00:00Z') }), { synced: 1, skipped: 0, failed: 0 })
+    assert.equal((d1.sqlite.prepare('SELECT next_page_token FROM allowed_playlists WHERE id = 90').get() as any).next_page_token, 'next')
+    assert.deepEqual(await syncApprovedContent(env, { now: new Date('2026-08-17T12:30:00Z') }), { synced: 1, skipped: 0, failed: 0 })
+    assert.equal((d1.sqlite.prepare('SELECT COUNT(*) AS count FROM playlist_videos').get() as any).count, 2)
+    assert.deepEqual(await syncApprovedContent(env, { now: new Date('2026-08-17T13:00:00Z') }), { synced: 0, skipped: 1, failed: 0 })
+  } finally { globalThis.fetch = originalFetch }
+})
 
 test('serves cached channel videos immediately while filtering short videos by duration', async () => {
   const { d1, request } = await fixture(child)

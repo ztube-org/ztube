@@ -21,7 +21,7 @@ const { data: childrenData } = useApi<any>('/api/admin/children')
       <UCard v-for="child in childrenData?.children" :key="child.id" class="overflow-hidden rounded-2xl ring-1 ring-gray-200 transition hover:shadow-md">
         <template #header>
           <div class="flex items-center gap-3">
-            <UAvatar :alt="child.displayName || child.email" size="lg" />
+            <UAvatar :src="child.avatarUrl" :alt="child.displayName || child.email" size="lg" />
             <div class="min-w-0">
               <div class="flex items-center gap-2">
                 <h3 class="truncate font-semibold">{{ child.displayName || child.email }}</h3>

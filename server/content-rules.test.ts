@@ -26,7 +26,7 @@ class IsolatedD1 {
 
 async function fixture() {
   const d1 = new IsolatedD1()
-  for (const migration of ['0001_initial.sql', '0002_child_time_settings.sql', '0003_restricted_watch_time.sql', '0004_active_playback_lease.sql', '0005_content_rules.sql', '0006_video_content_rules.sql', '0007_parent_viewing_day_interventions.sql', '0008_two-role_accounts.sql', '0009_video_classifications.sql', '0010_drop_video_classifications.sql', '0011_video_published_at.sql', '0012_favorites_and_playback_progress.sql', '0013_video_recommendations.sql', '0014_video_descriptions.sql']) {
+  for (const migration of ['0001_initial.sql', '0002_child_time_settings.sql', '0003_restricted_watch_time.sql', '0004_active_playback_lease.sql', '0005_content_rules.sql', '0006_video_content_rules.sql', '0007_parent_viewing_day_interventions.sql', '0008_two-role_accounts.sql', '0009_video_classifications.sql', '0010_drop_video_classifications.sql', '0011_video_published_at.sql', '0012_favorites_and_playback_progress.sql', '0013_video_recommendations.sql', '0014_video_descriptions.sql', '0015_library_routines_and_profiles.sql']) {
     await d1.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), 'utf8'))
   }
   d1.sqlite.exec(`
@@ -78,6 +78,27 @@ test('video overrides are created from trusted cached membership without duplica
 
   assert.equal((await request('/api/admin/children/10/video-rules/arbitrary', 'PUT', { rule: 'exempt', sourceType: 'playlist', sourceId: 400 })).status, 404)
   assert.equal((await request('/api/admin/children/10/video-rules/overlap', 'PUT', { rule: 'exempt', sourceType: 'playlist', sourceId: 999 })).status, 404)
+})
+
+test('Child source pages resolve each video rule independently of the source card', async () => {
+  const { request, asChild } = await fixture()
+  asChild()
+  const channel = await (await request('/api/child/channel/300/videos')).json() as any
+  assert.equal(channel.videos.find((video: any) => video.videoId === 'channel-conflict').contentRule, 'restricted')
+  const playlist = await (await request('/api/child/playlist/400/videos')).json() as any
+  assert.equal(playlist.videos.find((video: any) => video.videoId === 'playlist-conflict').contentRule, 'restricted')
+})
+
+test('Admin edits tags and profiles and copies only reusable Child configuration', async () => {
+  const { d1, request } = await fixture()
+  assert.equal((await request('/api/admin/children/10/content/channel/300/tags', 'PUT', { tags: ['Science', 'STEM'] })).status, 200)
+  assert.equal((await request('/api/admin/children/11/profile', 'PUT', { displayName: 'Sibling', avatarUrl: 'https://example.com/avatar.png' })).status, 200)
+  assert.equal((await request('/api/admin/children/11/content/copy', 'POST', { sourceChildId: 10 })).status, 200)
+  const copied = d1.sqlite.prepare("SELECT content_rule, tags FROM allowed_channels WHERE child_id = 11 AND channel_id = 'channel-a'").get() as any
+  assert.equal(copied.content_rule, 'exempt')
+  assert.deepEqual(JSON.parse(copied.tags), ['Science', 'STEM'])
+  assert.equal((d1.sqlite.prepare('SELECT display_name FROM children WHERE id = 11').get() as any).display_name, 'Sibling')
+  assert.equal((d1.sqlite.prepare('SELECT COUNT(*) AS count FROM daily_usage_summaries WHERE child_id = 11').get() as any).count, 0)
 })
 
 test('rule resolution is deterministic by specificity with restricted winning ties', async () => {

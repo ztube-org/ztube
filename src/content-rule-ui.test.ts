@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { contentStatus } from './content-rule-ui.ts'
+import { contentStatus, sourceIsNavigable } from './content-rule-ui.ts'
 
 const watchTime = {
   restricted: { remainingSeconds: 0, locked: true },
@@ -17,4 +17,8 @@ test('child UI treats Content Rule buckets independently', () => {
     label: 'Safety Cap only · 14 min remaining',
     exhaustedLabel: 'Safety Cap used',
   })
+})
+
+test('a source remains navigable when its own bucket is exhausted because a video override may use the other bucket', () => {
+  assert.equal(sourceIsNavigable(), true)
 })

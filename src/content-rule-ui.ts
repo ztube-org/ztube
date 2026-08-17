@@ -1,5 +1,10 @@
 export type ContentRule = 'restricted' | 'exempt'
 
+// A source can contain a more-specific video override that uses the other bucket.
+export function sourceIsNavigable() {
+  return true
+}
+
 type BucketStatus = { remainingSeconds: number; locked: boolean }
 type WatchTimeStatus = { restricted: BucketStatus; exempt: BucketStatus }
 

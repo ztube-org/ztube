@@ -44,7 +44,7 @@ class IsolatedD1 {
 
 async function fixture() {
   const d1 = new IsolatedD1()
-  for (const migration of ['0001_initial.sql', '0002_child_time_settings.sql', '0003_restricted_watch_time.sql', '0004_active_playback_lease.sql', '0005_content_rules.sql', '0006_video_content_rules.sql', '0007_parent_viewing_day_interventions.sql', '0008_two-role_accounts.sql', '0009_video_classifications.sql', '0010_drop_video_classifications.sql', '0011_video_published_at.sql', '0012_favorites_and_playback_progress.sql', '0013_video_recommendations.sql', '0014_video_descriptions.sql']) {
+  for (const migration of ['0001_initial.sql', '0002_child_time_settings.sql', '0003_restricted_watch_time.sql', '0004_active_playback_lease.sql', '0005_content_rules.sql', '0006_video_content_rules.sql', '0007_parent_viewing_day_interventions.sql', '0008_two-role_accounts.sql', '0009_video_classifications.sql', '0010_drop_video_classifications.sql', '0011_video_published_at.sql', '0012_favorites_and_playback_progress.sql', '0013_video_recommendations.sql', '0014_video_descriptions.sql', '0015_library_routines_and_profiles.sql']) {
     await d1.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), 'utf8'))
   }
   d1.sqlite.exec(`
@@ -128,4 +128,23 @@ test('racing final heartbeats cannot spend beyond the final allowance seconds', 
   assert.equal(results.some(result => result.authorized === false), true)
   assert.equal((d1.sqlite.prepare('SELECT restricted_seconds FROM daily_usage_summaries').get() as any).restricted_seconds, 900)
   assert.equal((d1.sqlite.prepare('SELECT COUNT(*) AS count FROM playback_sessions WHERE ended_at IS NULL').get() as any).count, 0)
+})
+
+test('the cross-bucket Break Cycle starts and expires a Required Break at its exact threshold', async () => {
+  const { d1, clock, authorize, heartbeat } = await fixture()
+  d1.sqlite.exec('UPDATE child_time_settings SET weekday_allowance_minutes = 60, weekend_allowance_minutes = 60, break_after_minutes = 15, break_duration_minutes = 5 WHERE child_id = 10')
+  const active = await authorize()
+  await heartbeat(active.sessionId, 1, 'playing')
+  let final: any
+  for (let sequence = 2; sequence <= 61; sequence++) {
+    clock.setSeconds(clock.getSeconds() + 15)
+    final = await (await heartbeat(active.sessionId, sequence, 'playing')).json()
+  }
+  assert.equal(final.authorized, false)
+  const usage = d1.sqlite.prepare("SELECT break_cycle_seconds, break_until FROM daily_usage_summaries WHERE child_id = 10 AND viewing_day = '2026-08-17'").get() as any
+  assert.equal(usage.break_cycle_seconds, 900)
+  assert.equal(usage.break_until, Math.floor(clock.getTime() / 1000) + 300)
+  assert.equal(await authorize(), undefined)
+  clock.setSeconds(clock.getSeconds() + 301)
+  assert.ok(await authorize())
 })

@@ -1,13 +1,60 @@
+import * as v from 'valibot'
 import { parseDuration } from './youtube.ts'
 
 const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3'
 
 export class YouTubeApiError extends Error {}
 
-async function youtubeJson(url: string) {
+const thumbnailSchema = v.object({ url: v.string() })
+const thumbnailsSchema = v.object({
+  medium: v.optional(thumbnailSchema),
+  default: v.optional(thumbnailSchema),
+})
+const apiErrorSchema = v.object({
+  error: v.optional(v.object({
+    message: v.optional(v.string()),
+    errors: v.optional(v.array(v.object({ reason: v.optional(v.string()) }))),
+  })),
+})
+const videoItemSchema = v.object({
+  id: v.string(),
+  snippet: v.object({
+    title: v.optional(v.string(), ''),
+    description: v.optional(v.string()),
+    thumbnails: v.optional(thumbnailsSchema, {}),
+    channelTitle: v.optional(v.string(), ''),
+    publishedAt: v.optional(v.string()),
+  }),
+  contentDetails: v.optional(v.object({ duration: v.optional(v.string()) })),
+})
+const videoListSchema = v.object({ items: v.optional(v.array(videoItemSchema), []) })
+const playlistListSchema = v.object({ items: v.optional(v.array(v.object({
+  id: v.string(),
+  snippet: v.object({ title: v.string(), thumbnails: v.optional(thumbnailsSchema, {}) }),
+})), []) })
+const channelListSchema = v.object({ items: v.optional(v.array(v.object({
+  id: v.union([v.string(), v.object({ channelId: v.string() })]),
+  snippet: v.optional(v.object({ title: v.string(), thumbnails: v.optional(thumbnailsSchema, {}) })),
+  contentDetails: v.object({ relatedPlaylists: v.object({ uploads: v.string() }) }),
+})), []) })
+const playlistItemsSchema = v.object({
+  items: v.optional(v.array(v.object({
+    contentDetails: v.object({ videoId: v.string() }),
+    snippet: v.object({
+      title: v.string(),
+      thumbnails: v.optional(thumbnailsSchema, {}),
+      channelTitle: v.optional(v.string(), ''),
+    }),
+  })), []),
+  nextPageToken: v.optional(v.string()),
+})
+
+async function youtubeJson<TSchema extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>>(url: string, schema: TSchema): Promise<v.InferOutput<TSchema>> {
   const response = await fetch(url)
-  const data = await response.json() as { items?: any[]; nextPageToken?: string; error?: { message?: string; errors?: Array<{ reason?: string }> } }
+  const raw: unknown = await response.json()
   if (!response.ok) {
+    const parsedError = v.safeParse(apiErrorSchema, raw)
+    const data = parsedError.success ? parsedError.output : {}
     const reason = data.error?.errors?.[0]?.reason
     const message = reason === 'quotaExceeded'
       ? 'YouTube API quota is exhausted'
@@ -16,7 +63,9 @@ async function youtubeJson(url: string) {
         : `YouTube API request failed${data.error?.message ? `: ${data.error.message}` : ''}`
     throw new YouTubeApiError(message)
   }
-  return data
+  const parsed = v.safeParse(schema, raw)
+  if (!parsed.success) throw new YouTubeApiError('YouTube API returned an invalid response')
+  return parsed.output
 }
 
 function requireApiKey(apiKey: string) {
@@ -53,7 +102,7 @@ export async function fetchVideoMetadata(videoId: string, key: string): Promise<
   const apiKey = requireApiKey(key)
   const url = `${YOUTUBE_API_BASE}/videos?part=snippet,contentDetails&id=${videoId}&key=${apiKey}`
 
-  const data = await youtubeJson(url)
+  const data = await youtubeJson(url, videoListSchema)
 
   if (!data.items || data.items.length === 0) {
     throw new YouTubeApiError('Video not found')
@@ -75,7 +124,7 @@ export async function fetchPlaylistMetadata(playlistId: string, key: string): Pr
   const apiKey = requireApiKey(key)
   const url = `${YOUTUBE_API_BASE}/playlists?part=snippet&id=${playlistId}&key=${apiKey}`
 
-  const data = await youtubeJson(url)
+  const data = await youtubeJson(url, playlistListSchema)
 
   if (!data.items || data.items.length === 0) {
     throw new YouTubeApiError('Playlist not found')
@@ -102,14 +151,15 @@ export async function fetchChannelMetadata(channelId: string, key: string): Prom
     url = `${YOUTUBE_API_BASE}/channels?part=snippet,contentDetails&id=${channelId}&key=${apiKey}`
   }
 
-  const data = await youtubeJson(url)
+  const data = await youtubeJson(url, channelListSchema)
 
   if (!data.items || data.items.length === 0) {
     throw new YouTubeApiError('Channel not found')
   }
 
   const item = data.items[0]
-  const actualChannelId = item.id.channelId || item.id
+  const actualChannelId = typeof item.id === 'string' ? item.id : item.id.channelId
+  if (!item.snippet) throw new YouTubeApiError('Channel metadata is incomplete')
 
   return {
     channelId: actualChannelId,
@@ -124,19 +174,19 @@ export async function fetchPlaylistVideosPage(playlistId: string, key: string, p
   const url = new URL(`${YOUTUBE_API_BASE}/playlistItems`)
   url.search = new URLSearchParams({ part: 'snippet,contentDetails', playlistId, maxResults: String(maxResults), key: apiKey, ...(pageToken ? { pageToken } : {}) }).toString()
 
-  const data = await youtubeJson(url.toString())
+  const data = await youtubeJson(url.toString(), playlistItemsSchema)
 
   if (!data.items) {
     return { videos: [], nextPageToken: null }
   }
 
   // Get video IDs to fetch duration info
-  const videoIds = data.items.map((item: any) => item.contentDetails.videoId).join(',')
+  const videoIds = data.items.map(item => item.contentDetails.videoId).join(',')
 
   if (!videoIds) return { videos: [], nextPageToken: data.nextPageToken ?? null }
 
   const videosUrl = `${YOUTUBE_API_BASE}/videos?part=snippet,contentDetails&id=${videoIds}&key=${apiKey}`
-  const videosData = await youtubeJson(videosUrl)
+  const videosData = await youtubeJson(videosUrl, videoListSchema)
 
   const metadataMap = new Map<string, { description: string; duration: number; publishedAt: Date | null }>()
   for (const video of videosData.items || []) {
@@ -148,7 +198,7 @@ export async function fetchPlaylistVideosPage(playlistId: string, key: string, p
   }
 
   return {
-    videos: data.items.map((item: any, index: number) => ({
+    videos: data.items.map((item, index) => ({
       videoId: item.contentDetails.videoId,
       title: item.snippet.title,
       description: metadataMap.get(item.contentDetails.videoId)?.description || '',
@@ -171,8 +221,7 @@ export async function fetchChannelVideos(channelId: string, key: string, maxResu
 
   // First get the uploads playlist ID
   const channelUrl = `${YOUTUBE_API_BASE}/channels?part=contentDetails&id=${channelId}&key=${apiKey}`
-  const channelResponse = await fetch(channelUrl)
-  const channelData = await channelResponse.json() as { items?: any[] }
+  const channelData = await youtubeJson(channelUrl, channelListSchema)
 
   if (!channelData.items || channelData.items.length === 0) {
     return []

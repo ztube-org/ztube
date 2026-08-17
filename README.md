@@ -1,14 +1,16 @@
 # ZTube
 
-A parental control YouTube platform for curating content for children.
+A curated YouTube viewer with server-enforced content and viewing controls for Children.
 
 ## Features
 
-- Parents manage allowlists of YouTube channels, playlists, and videos
-- Children browse and watch only approved content
-- Server-authoritative daily viewing allowances with separate Safety Caps for Allowance-Exempt Content
-- Clean, distraction-free video player with speed controls
-- Admin panel for account management
+- Admins manage Approved Content, Content Rules, tags, profiles, and reusable Child configurations
+- Children browse and watch only Approved Content, with search, Favorites, Recommendations, and Continue Watching
+- Server-authoritative Daily Allowances and separate Safety Caps for Allowance-Exempt Content
+- Viewing Windows, Required Breaks, and current-day Viewing Pause controls
+- Privacy-preserving 7/30-day Daily Usage Summaries without per-video viewing history
+- Six-hour content freshness with scheduled background sync and Admin force-sync/preview controls
+- Clean, distraction-free video player
 - Google authentication through Cloudflare Access
 
 ## Local Development
@@ -62,13 +64,13 @@ A parental control YouTube platform for curating content for children.
 
 6. In Cloudflare Zero Trust, create a self-hosted Access application for
    `ztube.txchen.win`, select Google as the identity provider, and add an Allow
-   policy for every parent and child who may use ZTube. The Worker trusts the
+   policy for every Admin and Child who may use ZTube. The Worker trusts the
    `Cf-Access-Authenticated-User-Email` header injected by Access, so do not
    expose another public route that bypasses Access.
 
-The first non-admin Google identity to visit ZTube becomes a parent. A parent
-adds each child using the child's Google email before that child signs in.
-Administrator emails are configured in `wrangler.jsonc` via `ADMIN_EMAILS`.
+Every authenticated identity automatically receives a Child profile on first
+sign-in. Emails listed in `ADMIN_EMAILS` additionally receive Admin capability
+and can manage every Child; accounts are not created manually in ZTube.
 
 ZTube enforces Approved Content and viewing allowances only inside the ZTube application; it does not block the YouTube website or app at the device level. For the explicitly authorized empty-database launch procedure, see [the zero-data rollout runbook](docs/operations/zero-data-rollout.md). The destructive reset is never part of normal deployment or verification.
 
@@ -77,5 +79,6 @@ ZTube enforces Approved Content and viewing allowances only inside the ZTube app
 - Vue 3 + Vue Router + Hono
 - Cloudflare Workers + Worker Assets + D1
 - Drizzle ORM
+- Valibot
 - Nuxt UI's standalone Vue plugin + Tailwind CSS
 - YouTube Data API v3

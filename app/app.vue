@@ -25,6 +25,7 @@ watch(() => route.fullPath, () => { void refreshRecommendations() })
             <UIcon name="i-heroicons-megaphone" class="h-5 w-5" />
             New for You · {{ recommendations.count }}
           </RouterLink>
+          <UAvatar :src="user.avatarUrl" :alt="user.displayName || user.email" size="sm" />
           <span class="hidden max-w-64 truncate text-sm text-gray-600 sm:block">{{ user.displayName || user.email }}</span>
           <UButton color="neutral" variant="ghost" icon="i-heroicons-arrow-right-start-on-rectangle" @click="logout">Logout</UButton>
         </div>

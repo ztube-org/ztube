@@ -4,6 +4,7 @@ export interface CurrentUser {
   id: number
   email: string
   displayName: string | null
+  avatarUrl: string | null
   role: 'admin' | 'non-admin'
 }
 

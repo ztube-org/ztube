@@ -119,5 +119,5 @@ button, a, input, select {
 }
 
 @media (pointer: coarse) {
-  button, [role="button"], select { min-height: 44px; }
+  button, [role="button"], input, select { min-height: 44px; }
 }

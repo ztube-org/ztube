@@ -1,5 +1,3 @@
-import { z } from 'zod'
-
 export type YouTubeContentType = 'video' | 'playlist' | 'channel'
 
 export interface ParsedYouTubeUrl {
@@ -50,44 +48,6 @@ export function parseYouTubeUrl(url: string): ParsedYouTubeUrl | null {
     return null
   }
 }
-
-// YouTube API response schemas
-export const videoSchema = z.object({
-  id: z.string(),
-  snippet: z.object({
-    title: z.string(),
-    channelTitle: z.string(),
-    thumbnails: z.object({
-      medium: z.object({ url: z.string() }).optional(),
-      default: z.object({ url: z.string() }).optional(),
-    }),
-  }),
-  contentDetails: z.object({
-    duration: z.string(),
-  }).optional(),
-})
-
-export const playlistSchema = z.object({
-  id: z.string(),
-  snippet: z.object({
-    title: z.string(),
-    thumbnails: z.object({
-      medium: z.object({ url: z.string() }).optional(),
-      default: z.object({ url: z.string() }).optional(),
-    }),
-  }),
-})
-
-export const channelSchema = z.object({
-  id: z.string(),
-  snippet: z.object({
-    title: z.string(),
-    thumbnails: z.object({
-      medium: z.object({ url: z.string() }).optional(),
-      default: z.object({ url: z.string() }).optional(),
-    }),
-  }),
-})
 
 // Parse ISO 8601 duration to seconds
 export function parseDuration(duration: string): number {

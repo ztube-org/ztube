@@ -19,12 +19,12 @@
     "deploy": "npm run check && wrangler deploy"
   },
   "dependencies": {
-    "@nuxt/ui": "^4.4.0",
-    "drizzle-orm": "^0.45.1",
+    "@nuxt/ui": "^4.10.0",
+    "drizzle-orm": "^0.45.2",
     "hono": "^4.13.2",
+    "valibot": "^1.4.2",
     "vue": "^3.5.27",
-    "vue-router": "^4.6.4",
-    "zod": "^4.3.6"
+    "vue-router": "^4.6.4"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.52.1",
@@ -36,5 +36,13 @@
     "vite": "^8.2.1",
     "vue-tsc": "^3.3.10",
     "wrangler": "^4.123.0"
+  },
+  "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "^0.25.12"
+    },
+    "fontless": {
+      "esbuild": "^0.28.2"
+    }
   }
 }

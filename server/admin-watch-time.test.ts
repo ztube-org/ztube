@@ -26,7 +26,7 @@ class IsolatedD1 {
 
 async function fixture() {
   const d1 = new IsolatedD1()
-  for (const migration of ['0001_initial.sql', '0002_child_time_settings.sql', '0003_restricted_watch_time.sql', '0004_active_playback_lease.sql', '0005_content_rules.sql', '0006_video_content_rules.sql', '0007_parent_viewing_day_interventions.sql', '0008_two-role_accounts.sql', '0009_video_classifications.sql', '0010_drop_video_classifications.sql', '0011_video_published_at.sql', '0012_favorites_and_playback_progress.sql', '0013_video_recommendations.sql', '0014_video_descriptions.sql']) {
+  for (const migration of ['0001_initial.sql', '0002_child_time_settings.sql', '0003_restricted_watch_time.sql', '0004_active_playback_lease.sql', '0005_content_rules.sql', '0006_video_content_rules.sql', '0007_parent_viewing_day_interventions.sql', '0008_two-role_accounts.sql', '0009_video_classifications.sql', '0010_drop_video_classifications.sql', '0011_video_published_at.sql', '0012_favorites_and_playback_progress.sql', '0013_video_recommendations.sql', '0014_video_descriptions.sql', '0015_library_routines_and_profiles.sql']) {
     await d1.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), 'utf8'))
   }
   d1.sqlite.exec(`
@@ -94,4 +94,25 @@ test('a recurring reduction requires warning confirmation and ends affected Acti
 
   assert.equal((await request('/api/admin/children/10/time-settings', 'PUT', { ...settings, confirmReduction: true })).status, 200)
   assert.notEqual((d1.sqlite.prepare("SELECT ended_at FROM playback_sessions WHERE id = 'active'").get() as any).ended_at, null)
+})
+
+test('Viewing Pause and Required Break block playback while preserving aggregate-only usage history', async () => {
+  const { d1, clock, request, asChild } = await fixture()
+  d1.sqlite.exec("INSERT INTO allowed_videos (child_id, video_id, video_title, duration, is_available) VALUES (10, 'approved', 'Approved', 600, 1)")
+  assert.equal((await request('/api/admin/children/10/watch-time/viewing-pause', 'PUT', { paused: true })).status, 200)
+  asChild()
+  assert.equal((await request('/api/child/playback-authorizations', 'POST', { videoId: 'approved' })).status, 403)
+
+  d1.sqlite.exec("UPDATE daily_usage_summaries SET playback_paused = 0, break_cycle_seconds = 900, break_until = 1786907100 WHERE child_id = 10 AND viewing_day = '2026-08-16'")
+  assert.equal((await request('/api/child/playback-authorizations', 'POST', { videoId: 'approved' })).status, 403)
+  clock.setTime(new Date('2026-08-16T19:06:00.000Z').getTime())
+  assert.equal((await request('/api/child/playback-authorizations', 'POST', { videoId: 'approved' })).status, 200)
+})
+
+test('Admin receives a zero-filled 7 or 30 day Daily Usage Summary', async () => {
+  const { request } = await fixture()
+  const summary = await (await request('/api/admin/children/10/usage?days=7')).json() as any
+  assert.equal(summary.days.length, 7)
+  assert.deepEqual(summary.days.at(-1), { viewingDay: '2026-08-16', restrictedSeconds: 301, exemptSeconds: 601, totalSeconds: 902 })
+  assert.equal(summary.days[0].totalSeconds, 0)
 })

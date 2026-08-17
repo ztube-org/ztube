@@ -163,7 +163,7 @@ async function toggleFavorite() {
         <div class="grid grid-cols-1 sm:grid-cols-2 xl:block">
           <NuxtLink
             v-for="(video, index) in playlistData.data.value.videos"
-            :key="video.id"
+            :key="video.videoId"
             :to="`/watch?v=${video.videoId}&playlist=${playlistParam}`"
             class="flex min-h-24 gap-3 border-b border-gray-100 p-3 transition hover:bg-gray-100"
             :class="{ 'bg-[#e8f0fe]': video.videoId === videoId }"
