@@ -83,11 +83,15 @@ async function toggleFavorite(videoId: string) {
     <UAlert v-else-if="data?.policy?.blocked" color="warning" title="Videos are visible, but playback is unavailable right now" class="mb-4" />
     <UInput v-if="data?.videos?.length" v-model="search" icon="i-heroicons-magnifying-glass" placeholder="Search videos" class="mb-4 w-full" />
 
-    <div v-else-if="!data?.videos?.length" class="py-12 text-center text-gray-500">
+    <div v-if="!data && !loadError" class="py-12 text-center text-gray-500">
+      Loading channel videos…
+    </div>
+
+    <div v-else-if="data && !data.videos.length" class="py-12 text-center text-gray-500">
       No videos have synced yet. Ask the Admin to sync this channel.
     </div>
 
-    <div v-else class="zt-video-grid">
+    <div v-else-if="filteredVideos.length" class="zt-video-grid">
       <NuxtLink
         v-for="video in filteredVideos"
         :key="video.videoId"
@@ -119,6 +123,7 @@ async function toggleFavorite(videoId: string) {
         <p v-if="blocked(video)" class="text-xs text-amber-600">Playback unavailable right now</p>
       </NuxtLink>
     </div>
+    <div v-else-if="data" class="py-12 text-center text-gray-500">No videos match this search.</div>
     <div v-if="data && data.nextPage !== null" class="mt-5 flex justify-center"><UButton variant="soft" :loading="loadingMore" @click="loadMore">Load more videos</UButton></div>
   </div>
 </template>
