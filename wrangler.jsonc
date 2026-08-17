@@ -20,7 +20,7 @@
   },
   "vars": {
     "AUTH_MODE": "access",
-    "ADMIN_EMAILS": "admin@example.com"
+    "ADMIN_EMAILS": "admin@example.com,admin2@example.com"
   },
   "d1_databases": [
     {

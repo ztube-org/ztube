@@ -14,7 +14,7 @@ test('child UI treats Content Rule buckets independently', () => {
   assert.deepEqual(contentStatus('exempt', watchTime), {
     remainingSeconds: 870,
     locked: false,
-    label: '不计入普通额度 · 14 分钟安全时长剩余',
+    label: 'Safety Cap only · 14 min remaining',
     exhaustedLabel: 'Safety Cap used',
   })
 })

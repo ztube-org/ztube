@@ -1,10 +1,10 @@
 import { readonly, ref, type Ref } from 'vue'
 
 export interface CurrentUser {
-  id: number | null
+  id: number
   email: string
   displayName: string | null
-  role: 'superadmin' | 'parent' | 'child'
+  role: 'admin' | 'non-admin'
 }
 
 export class ApiError extends Error {

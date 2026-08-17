@@ -115,8 +115,8 @@ watch(playbackSpeed, (speed) => {
         <div class="border-b border-gray-200 bg-white p-4 sm:mt-3 sm:rounded-xl sm:border">
           <div class="flex flex-col justify-between gap-4 md:flex-row md:items-center">
             <div>
-              <p v-if="usageBucket === 'exempt'" class="text-sm font-medium text-[#065fd4]">不计入普通额度</p>
-              <p v-if="remainingSeconds !== null" class="font-mono text-lg font-semibold">{{ formatRemaining(remainingSeconds) }} {{ usageBucket === 'exempt' ? 'safety time' : 'Daily Allowance' }} remaining</p>
+              <p v-if="usageBucket === 'exempt'" class="text-sm font-medium text-[#065fd4]">Safety Cap only</p>
+              <p v-if="remainingSeconds !== null" class="font-mono text-lg font-semibold">{{ formatRemaining(remainingSeconds) }} {{ usageBucket === 'exempt' ? 'Safety Cap' : 'Daily Allowance' }} remaining</p>
               <p v-if="warning" class="text-sm font-medium text-amber-600" role="alert">{{ warning }}</p>
             </div>
             <div class="flex items-center gap-3 overflow-x-auto pb-1 md:pb-0">

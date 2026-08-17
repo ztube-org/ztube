@@ -2,9 +2,26 @@ import { parseDuration } from './youtube.ts'
 
 const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3'
 
+export class YouTubeApiError extends Error {}
+
+async function youtubeJson(url: string) {
+  const response = await fetch(url)
+  const data = await response.json() as { items?: any[]; error?: { message?: string; errors?: Array<{ reason?: string }> } }
+  if (!response.ok) {
+    const reason = data.error?.errors?.[0]?.reason
+    const message = reason === 'quotaExceeded'
+      ? 'YouTube API quota is exhausted'
+      : data.error?.message?.includes('API key not valid')
+        ? 'YouTube API key is invalid; update YOUTUBE_API_KEY'
+        : `YouTube API request failed${data.error?.message ? `: ${data.error.message}` : ''}`
+    throw new YouTubeApiError(message)
+  }
+  return data
+}
+
 function requireApiKey(apiKey: string) {
   if (!apiKey) {
-    throw new Error('YouTube API key not configured')
+    throw new YouTubeApiError('YouTube API key is not configured')
   }
   return apiKey
 }
@@ -34,11 +51,10 @@ export async function fetchVideoMetadata(videoId: string, key: string): Promise<
   const apiKey = requireApiKey(key)
   const url = `${YOUTUBE_API_BASE}/videos?part=snippet,contentDetails&id=${videoId}&key=${apiKey}`
 
-  const response = await fetch(url)
-  const data = await response.json() as { items?: any[] }
+  const data = await youtubeJson(url)
 
   if (!data.items || data.items.length === 0) {
-    throw new Error('Video not found')
+    throw new YouTubeApiError('Video not found')
   }
 
   const item = data.items[0]
@@ -55,11 +71,10 @@ export async function fetchPlaylistMetadata(playlistId: string, key: string): Pr
   const apiKey = requireApiKey(key)
   const url = `${YOUTUBE_API_BASE}/playlists?part=snippet&id=${playlistId}&key=${apiKey}`
 
-  const response = await fetch(url)
-  const data = await response.json() as { items?: any[] }
+  const data = await youtubeJson(url)
 
   if (!data.items || data.items.length === 0) {
-    throw new Error('Playlist not found')
+    throw new YouTubeApiError('Playlist not found')
   }
 
   const item = data.items[0]
@@ -83,11 +98,10 @@ export async function fetchChannelMetadata(channelId: string, key: string): Prom
     url = `${YOUTUBE_API_BASE}/channels?part=snippet,contentDetails&id=${channelId}&key=${apiKey}`
   }
 
-  const response = await fetch(url)
-  const data = await response.json() as { items?: any[] }
+  const data = await youtubeJson(url)
 
   if (!data.items || data.items.length === 0) {
-    throw new Error('Channel not found')
+    throw new YouTubeApiError('Channel not found')
   }
 
   const item = data.items[0]

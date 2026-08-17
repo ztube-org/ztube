@@ -1,17 +1,8 @@
 import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
-// Parents table
-export const parents = sqliteTable('parents', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  email: text('email').notNull().unique(),
-  displayName: text('display_name'),
-  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
-})
-
-// Children table
+// Every persisted account is a Child. The Admin is configured by email and has no database profile.
 export const children = sqliteTable('children', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  parentId: integer('parent_id').notNull().references(() => parents.id, { onDelete: 'cascade' }),
   email: text('email').notNull().unique(),
   displayName: text('display_name'),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
@@ -133,8 +124,6 @@ export const playlistVideos = sqliteTable('playlist_videos', {
 })
 
 // Type exports
-export type Parent = typeof parents.$inferSelect
-export type NewParent = typeof parents.$inferInsert
 export type Child = typeof children.$inferSelect
 export type NewChild = typeof children.$inferInsert
 export type ChildTimeSettings = typeof childTimeSettings.$inferSelect

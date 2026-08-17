@@ -8,13 +8,11 @@ DELETE FROM `allowed_playlists`;
 DELETE FROM `allowed_channels`;
 DELETE FROM `child_time_settings`;
 DELETE FROM `children`;
-DELETE FROM `parents`;
 DELETE FROM `channel_videos`;
 DELETE FROM `playlist_videos`;
 
 DELETE FROM `sqlite_sequence`
 WHERE `name` IN (
-  'parents',
   'children',
   'allowed_channels',
   'allowed_playlists',

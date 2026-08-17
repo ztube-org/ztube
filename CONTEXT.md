@@ -1,15 +1,19 @@
 # ZTube
 
-ZTube gives a parent control over which YouTube content a child may watch and how long the child may watch it.
+ZTube gives the Admin control over which YouTube content a child may watch and how long the child may watch it.
 
 ## Language
 
+**Admin**:
+A capability granted to accounts identified by configured email addresses. Admins collectively manage every Child while retaining their own Child profile for viewing and testing.
+_Avoid_: Separate parent account, Superadmin
+
 **Child**:
-A viewer profile whose approved content and viewing allowances are managed independently by a parent.
-_Avoid_: Kid account, device
+A viewer profile automatically created for every authenticated account, including an Admin. A Child has independently managed Approved Content and viewing allowances.
+_Avoid_: Manually created account, device
 
 **Approved Content**:
-A channel, playlist, or individual video that a parent has explicitly made available to a child.
+A channel, playlist, or individual video that the Admin has explicitly made available to a child.
 _Avoid_: Allowed URL, safe content
 
 **Restricted Watch Time**:
@@ -21,7 +25,7 @@ The amount of Restricted Watch Time available to a child for one local calendar 
 _Avoid_: Time limit, quota
 
 **Allowance-Exempt Content**:
-Approved Content that a parent marks as not consuming the child's Daily Allowance. Channels, playlists, and individual videos can each be marked independently for each child.
+Approved Content that the Admin marks as not consuming the child's Daily Allowance. Channels, playlists, and individual videos can each be marked independently for each child.
 _Avoid_: Learning content, unlimited content, whitelist
 
 **Safety Cap**:
@@ -33,7 +37,7 @@ A per-child designation that makes Approved Content restricted or allowance-exem
 _Avoid_: Category, entry route
 
 **Temporary Extension**:
-Additional Restricted Watch Time granted by a parent for the current local calendar day without changing the child's recurring Daily Allowance.
+Additional Restricted Watch Time granted by the Admin for the current local calendar day without changing the child's recurring Daily Allowance.
 _Avoid_: Permanent limit change, bonus
 
 **Active Playback**:
@@ -41,7 +45,7 @@ The single player currently authorized to play content for a child. Starting pla
 _Avoid_: Login session, device allowance
 
 **Viewing Day**:
-A calendar day in the child's parent-selected fixed time zone. Allowances reset at local midnight, and playback continuing across midnight begins consuming the new day's allowance.
+A calendar day in the fixed time zone selected for the child by the Admin. Allowances reset at local midnight, and playback continuing across midnight begins consuming the new day's allowance.
 _Avoid_: Rolling 24 hours, device day, server day
 
 **Daily Usage Summary**:

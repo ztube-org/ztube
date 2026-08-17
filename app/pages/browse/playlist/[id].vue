@@ -32,8 +32,12 @@ function formatDuration(seconds: number | null): string {
       </div>
     </div>
 
-    <div v-if="!data?.videos?.length" class="text-center py-16 text-gray-500">
-      No videos in this playlist yet
+    <div v-if="data?.playlist && !data.playlist.isAvailable" class="text-center py-16 text-red-600">
+      Unable to load videos from this playlist. Please try again later.
+    </div>
+
+    <div v-else-if="!data?.videos?.length" class="text-center py-16 text-gray-500">
+      Loading playlist videos…
     </div>
 
     <div v-else class="zt-video-grid">

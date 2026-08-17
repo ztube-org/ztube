@@ -8,7 +8,7 @@ export function contentStatus(rule: ContentRule, watchTime: WatchTimeStatus) {
   return {
     ...bucket,
     label: rule === 'exempt'
-      ? `不计入普通额度 · ${Math.floor(bucket.remainingSeconds / 60)} 分钟安全时长剩余`
+      ? `Safety Cap only · ${Math.floor(bucket.remainingSeconds / 60)} min remaining`
       : null,
     exhaustedLabel: rule === 'exempt' ? 'Safety Cap used' : 'Daily Allowance used',
   }

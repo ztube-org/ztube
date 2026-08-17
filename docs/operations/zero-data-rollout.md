@@ -8,17 +8,17 @@ ZTube authorizes and meters playback inside the ZTube application. It does not b
 
 ## Production procedure
 
-1. Confirm that all current ZTube data is disposable and that affected families know they must recreate parents, Children, and Approved Content.
+1. Confirm that all current ZTube data is disposable and that affected families know Child profiles will be recreated on first sign-in and Approved Content must be configured again. Admin capability comes from configuration; Admin Child profiles are stored like every other profile.
 2. Deploy the application and apply all D1 migrations.
 3. Stop normal use during the cutover.
 4. Run `npm run db:clear -- --remote` from a trusted checkout authenticated to the intended Cloudflare account.
 5. At the prompt, verify that the target says `REMOTE PRODUCTION`, then type the exact confirmation phrase. An omitted target, an invalid target, or a mismatched phrase exits without touching the database.
-6. Sign in with a new parent identity. Create a Child and verify the defaults: UTC unless another fixed time zone is selected, 60 weekday minutes, 120 weekend minutes, and a 180-minute Safety Cap.
+6. Sign in as a configured Admin and verify that its Child profile is created automatically with the defaults: UTC, 60 weekday minutes, 120 weekend minutes, and a 180-minute Safety Cap.
 7. Add restricted and Allowance-Exempt Content. Verify that each can receive Playback Authorization and that its active playback accrues only to the corresponding bucket in today's Daily Usage Summary.
-8. Verify that the parent dashboard reports only today's aggregate restricted and allowance-exempt usage.
+8. Verify that the Admin dashboard reports only today's aggregate restricted and allowance-exempt usage.
 
 Use `npm run db:clear -- --local` only when deliberately resetting the local Wrangler D1 store. Neither command is safe to place in ordinary verification or CI.
 
 ## What is removed
 
-The operation removes all parents, Children, Approved Content, cached channel and playlist videos, Child time settings, Content Rules, Daily Usage Summaries, Temporary Extensions, and playback sessions. It preserves the schema and D1 migration history so the deployed application remains at the applied schema version.
+The operation removes all Children, Approved Content, cached channel and playlist videos, Child time settings, Content Rules, Daily Usage Summaries, Temporary Extensions, and playback sessions. It preserves the schema and D1 migration history so the deployed application remains at the applied schema version.

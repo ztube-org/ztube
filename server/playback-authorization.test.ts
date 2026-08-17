@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import { createApp } from './app.ts'
 
-type Identity = { id: number | null; email: string; displayName: string | null; role: 'superadmin' | 'parent' | 'child' }
+type Identity = { id: number; email: string; displayName: string | null; role: 'admin' | 'non-admin' }
 
 class IsolatedD1 {
   readonly sqlite = new DatabaseSync(':memory:')
@@ -43,14 +43,15 @@ async function fixture(identity: Identity, now = new Date('2026-08-16T12:00:00.0
   await d1.exec(await readFile(new URL('../migrations/0005_content_rules.sql', import.meta.url), 'utf8'))
   await d1.exec(await readFile(new URL('../migrations/0006_video_content_rules.sql', import.meta.url), 'utf8'))
   await d1.exec(await readFile(new URL('../migrations/0007_parent_viewing_day_interventions.sql', import.meta.url), 'utf8'))
+  await d1.exec(await readFile(new URL('../migrations/0008_two-role_accounts.sql', import.meta.url), 'utf8'))
   d1.sqlite.exec(`
-    INSERT INTO parents (id, email) VALUES (1, 'parent@example.com'), (2, 'other@example.com');
-    INSERT INTO children (id, parent_id, email) VALUES (10, 1, 'child@example.com'), (20, 2, 'other-child@example.com');
+    INSERT INTO children (id, email) VALUES (10, 'child@example.com'), (20, 'other-child@example.com');
   `)
   const app = createApp({ now: () => now, resolveUser: async () => identity })
-  const env = { DB: d1 as unknown as D1Database } as Env
+  const env = { DB: d1 as unknown as D1Database, YOUTUBE_API_KEY: 'test-key' } as Env
   return {
     d1,
+    request(path: string) { return app.request(path, {}, env) },
     authorize(videoId: string, extra: Record<string, unknown> = {}) {
       return app.request('/api/child/playback-authorizations', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ videoId, ...extra }),
@@ -59,7 +60,29 @@ async function fixture(identity: Identity, now = new Date('2026-08-16T12:00:00.0
   }
 }
 
-const child: Identity = { id: 10, email: 'child@example.com', displayName: null, role: 'child' }
+const child: Identity = { id: 10, email: 'child@example.com', displayName: null, role: 'non-admin' }
+
+test('returns channel videos on the first visit instead of only refreshing in the background', async () => {
+  const { d1, request } = await fixture(child)
+  d1.sqlite.exec("INSERT INTO allowed_channels (id, child_id, channel_id, uploads_playlist_id, channel_title, is_available) VALUES (100, 10, 'channel', 'uploads', 'Channel', 1)")
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input))
+    if (url.pathname.endsWith('/playlistItems')) {
+      return Response.json({ items: [{ contentDetails: { videoId: 'first-video' }, snippet: { title: 'First video', thumbnails: { medium: { url: 'thumb' } }, channelTitle: 'Channel' } }] })
+    }
+    return Response.json({ items: [{ id: 'first-video', contentDetails: { duration: 'PT2M' } }] })
+  }
+  try {
+    const response = await request('/api/child/channel/100/videos')
+    assert.equal(response.status, 200)
+    const body = await response.json() as any
+    assert.equal(body.videos.length, 1)
+    assert.equal(body.videos[0].videoId, 'first-video')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
 
 test('authorizes direct Approved Content using a controllable clock', async () => {
   const { d1, authorize } = await fixture(child)
@@ -99,7 +122,8 @@ test('does not authorize content approved for another Child', async () => {
   assert.equal((await authorize('other-video')).status, 403)
 })
 
-test('requires a Child identity', async () => {
-  const { authorize } = await fixture({ id: 1, email: 'parent@example.com', displayName: null, role: 'parent' })
-  assert.equal((await authorize('anything')).status, 403)
+test('an Admin can also use its Child profile as a viewer', async () => {
+  const { d1, authorize } = await fixture({ id: 10, email: 'admin@example.com', displayName: null, role: 'admin' })
+  d1.sqlite.exec("INSERT INTO allowed_videos (child_id, video_id, video_title, is_available) VALUES (10, 'admin-test', 'Admin test', 1)")
+  assert.equal((await authorize('admin-test')).status, 200)
 })

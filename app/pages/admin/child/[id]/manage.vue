@@ -6,9 +6,9 @@ import { ApiError, apiFetch, useApi } from '../../../../../src/api'
 const route = useRoute()
 const childId = parseInt(route.params.id as string)
 
-const { data, refresh } = useApi<any>(`/api/parent/children/${childId}/content`)
-const { data: timeData, refresh: refreshTimeSettings } = useApi<any>(`/api/parent/children/${childId}/time-settings`)
-const { data: watchTime, refresh: refreshWatchTime } = useApi<any>(`/api/parent/children/${childId}/watch-time`)
+const { data, refresh } = useApi<any>(`/api/admin/children/${childId}/content`)
+const { data: timeData, refresh: refreshTimeSettings } = useApi<any>(`/api/admin/children/${childId}/time-settings`)
+const { data: watchTime, refresh: refreshWatchTime } = useApi<any>(`/api/admin/children/${childId}/watch-time`)
 
 const detectedTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 const timeForm = reactive({
@@ -21,6 +21,10 @@ const timeSaving = ref(false)
 const timeError = ref('')
 const timeSaved = ref(false)
 const allowanceOptions = Array.from({ length: 97 }, (_, index) => ({ label: `${index * 15} minutes`, value: index * 15 }))
+const contentRuleOptions = [
+  { label: 'Uses Daily Allowance', value: 'restricted' },
+  { label: 'Safety Cap only', value: 'exempt' },
+]
 const timeZoneOptions = computed(() => {
   const supportedValuesOf = (Intl as typeof Intl & { supportedValuesOf?: (key: 'timeZone') => string[] }).supportedValuesOf
   const zones = supportedValuesOf?.('timeZone') ?? ['UTC', detectedTimeZone]
@@ -37,11 +41,11 @@ async function saveTimeSettings() {
   timeSaved.value = false
   try {
     try {
-      await apiFetch(`/api/parent/children/${childId}/time-settings`, { method: 'PUT', body: timeForm })
+      await apiFetch(`/api/admin/children/${childId}/time-settings`, { method: 'PUT', body: timeForm })
     } catch (error) {
       if (!(error instanceof ApiError) || error.status !== 409 || error.response.requiresConfirmation !== true
         || !confirm(`${error.message}\n\nSave these recurring allowances anyway?`)) throw error
-      await apiFetch(`/api/parent/children/${childId}/time-settings`, { method: 'PUT', body: { ...timeForm, confirmReduction: true } })
+      await apiFetch(`/api/admin/children/${childId}/time-settings`, { method: 'PUT', body: { ...timeForm, confirmReduction: true } })
     }
     await refreshTimeSettings()
     await refreshWatchTime()
@@ -57,7 +61,7 @@ const interventionSaving = ref(false)
 async function extendToday(bucket: 'restricted' | 'exempt', minutes: 15 | 30 | 60) {
   interventionSaving.value = true
   try {
-    await apiFetch(`/api/parent/children/${childId}/watch-time/extensions`, { method: 'POST', body: { bucket, minutes } })
+    await apiFetch(`/api/admin/children/${childId}/watch-time/extensions`, { method: 'POST', body: { bucket, minutes } })
     await refreshWatchTime()
   } finally { interventionSaving.value = false }
 }
@@ -65,7 +69,7 @@ async function extendToday(bucket: 'restricted' | 'exempt', minutes: 15 | 30 | 6
 async function setRestrictedUnlock(unlocked: boolean) {
   interventionSaving.value = true
   try {
-    await apiFetch(`/api/parent/children/${childId}/watch-time/restricted-unlock`, { method: 'PUT', body: { unlocked } })
+    await apiFetch(`/api/admin/children/${childId}/watch-time/restricted-unlock`, { method: 'PUT', body: { unlocked } })
     await refreshWatchTime()
   } finally { interventionSaving.value = false }
 }
@@ -75,6 +79,10 @@ const addUrl = ref('')
 const addLoading = ref(false)
 const addError = ref('')
 const overrideSource = ref<{ type: 'channel' | 'playlist'; id: number; title: string } | null>(null)
+const videoRuleOptions = computed(() => [
+  { label: `Use ${overrideSource.value?.type ?? 'source'} setting`, value: 'inherit' },
+  ...contentRuleOptions,
+])
 const overrideVideos = ref<any[]>([])
 const overrideLoading = ref(false)
 
@@ -83,14 +91,14 @@ async function addContent() {
   addLoading.value = true
 
   try {
-    await apiFetch('/api/parent/content/add', {
+    await apiFetch('/api/admin/content/add', {
       method: 'POST',
       body: { childId, url: addUrl.value },
     })
     addUrl.value = ''
     await refresh()
   } catch (e: any) {
-    addError.value = e.data?.message || 'Failed to add content'
+    addError.value = e.response?.message || e.message || 'Failed to add content'
   } finally {
     addLoading.value = false
   }
@@ -100,19 +108,19 @@ async function deleteContent(id: number, type: string) {
   if (!confirm('Remove this content from allowlist?')) return
 
   try {
-    await apiFetch(`/api/parent/content/${id}?type=${type}`, { method: 'DELETE' })
+    await apiFetch(`/api/admin/content/${id}?type=${type}`, { method: 'DELETE' })
     await refresh()
   } catch (e: any) {
-    alert(e.data?.message || 'Failed to delete')
+    alert(e.response?.message || e.message || 'Failed to delete')
   }
 }
 
 async function updateRule(id: number, type: string, rule: string) {
   try {
-    await apiFetch(`/api/parent/children/${childId}/content/${type}/${id}/rule`, { method: 'PUT', body: { rule } })
+    await apiFetch(`/api/admin/children/${childId}/content/${type}/${id}/rule`, { method: 'PUT', body: { rule } })
     await refresh()
   } catch (e: any) {
-    alert(e.data?.message || e.message || 'Failed to update Content Rule')
+    alert(e.response?.message || e.message || 'Failed to update Content Rule')
   }
 }
 
@@ -120,7 +128,7 @@ async function showVideoOverrides(type: 'channel' | 'playlist', id: number, titl
   overrideSource.value = { type, id, title }
   overrideLoading.value = true
   try {
-    const result = await apiFetch<any>(`/api/parent/children/${childId}/content/${type}/${id}/videos`)
+    const result = await apiFetch<any>(`/api/admin/children/${childId}/content/${type}/${id}/videos`)
     overrideVideos.value = result.videos
   } finally {
     overrideLoading.value = false
@@ -133,8 +141,8 @@ function overrideFor(videoId: string) {
 
 async function updateVideoOverride(videoId: string, rule: string) {
   if (!overrideSource.value) return
-  if (rule === 'inherit') await apiFetch(`/api/parent/children/${childId}/video-rules/${encodeURIComponent(videoId)}`, { method: 'DELETE' })
-  else await apiFetch(`/api/parent/children/${childId}/video-rules/${encodeURIComponent(videoId)}`, {
+  if (rule === 'inherit') await apiFetch(`/api/admin/children/${childId}/video-rules/${encodeURIComponent(videoId)}`, { method: 'DELETE' })
+  else await apiFetch(`/api/admin/children/${childId}/video-rules/${encodeURIComponent(videoId)}`, {
     method: 'PUT', body: { rule, sourceType: overrideSource.value.type, sourceId: overrideSource.value.id },
   })
   await refresh()
@@ -151,7 +159,7 @@ function formatDuration(seconds: number | null): string {
 <template>
   <div class="zt-page">
     <div class="mb-8 flex items-center gap-3 border-b border-gray-200 pb-5">
-      <NuxtLink to="/parent/dashboard">
+      <NuxtLink to="/admin">
         <UButton color="gray" variant="ghost" icon="i-heroicons-arrow-left" />
       </NuxtLink>
       <div>
@@ -179,8 +187,9 @@ function formatDuration(seconds: number | null): string {
         <UFormField label="Weekend Daily Allowance">
           <USelect v-model="timeForm.weekendAllowanceMinutes" :items="allowanceOptions" class="w-full" />
         </UFormField>
-        <UFormField label="Allowance-exempt Safety Cap">
+        <UFormField label="Safety Cap">
           <USelect v-model="timeForm.safetyCapMinutes" :items="allowanceOptions" class="w-full" />
+          <template #hint>Daily maximum for content set to “Safety Cap only.”</template>
         </UFormField>
         <div class="flex items-end justify-end">
           <UButton type="submit" :loading="timeSaving">Save allowances</UButton>
@@ -204,7 +213,7 @@ function formatDuration(seconds: number | null): string {
       </template>
       <div v-if="watchTime" class="grid gap-4 sm:grid-cols-2">
         <div class="rounded-xl bg-gray-50 p-4">
-          <h3 class="font-semibold">Restricted Watch Time</h3>
+          <h3 class="font-semibold">Uses Daily Allowance</h3>
           <p class="mt-1 text-2xl font-bold">{{ watchTime.restricted.usedMinutes }} min used</p>
           <p class="text-sm text-gray-500">
             {{ watchTime.restricted.unlocked ? 'Unlocked for today' : `${watchTime.restricted.remainingMinutes} min remaining` }}
@@ -218,7 +227,7 @@ function formatDuration(seconds: number | null): string {
           </div>
         </div>
         <div class="rounded-xl bg-[#e8f0fe] p-4">
-          <h3 class="font-semibold">Allowance-Exempt Content</h3>
+          <h3 class="font-semibold">Safety Cap only</h3>
           <p class="mt-1 text-2xl font-bold">{{ watchTime.exempt.usedMinutes }} min used</p>
           <p class="text-sm text-gray-500">
             {{ watchTime.exempt.remainingMinutes }} min remaining
@@ -249,6 +258,12 @@ function formatDuration(seconds: number | null): string {
       <UAlert v-if="addError" color="red" :title="addError" class="mt-4" />
     </UCard>
 
+    <div class="mb-4 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-gray-700">
+      <p class="font-semibold text-gray-900">Viewing time for approved content</p>
+      <p class="mt-1"><strong>Uses Daily Allowance</strong> reduces the weekday or weekend allowance while it plays.</p>
+      <p><strong>Safety Cap only</strong> does not reduce that allowance, but playback stops when the Safety Cap is reached.</p>
+    </div>
+
     <!-- Content Tabs -->
     <UTabs class="rounded-2xl bg-white p-3 ring-1 ring-gray-200 sm:p-5" :items="[
       { label: `Channels (${data?.channels?.length || 0})`, slot: 'channels' },
@@ -270,7 +285,7 @@ function formatDuration(seconds: number | null): string {
             </div>
             <template #footer>
               <div class="flex flex-wrap items-center gap-2">
-                <USelect :model-value="channel.contentRule" :items="[{ label: 'Restricted', value: 'restricted' }, { label: '不计入普通额度', value: 'exempt' }]" size="xs" @update:model-value="updateRule(channel.id, 'channel', String($event))" />
+                <USelect :model-value="channel.contentRule" :items="contentRuleOptions" class="min-w-44" size="xs" @update:model-value="updateRule(channel.id, 'channel', String($event))" />
                 <UButton variant="ghost" size="xs" @click="showVideoOverrides('channel', channel.id, channel.channelTitle)">Video overrides</UButton>
                 <UButton color="neutral" variant="ghost" size="xs" icon="i-heroicons-trash" @click="deleteContent(channel.id, 'channel')">Remove</UButton>
               </div>
@@ -290,7 +305,7 @@ function formatDuration(seconds: number | null): string {
             <p v-if="!playlist.isAvailable" class="text-xs text-red-500">Unavailable</p>
             <template #footer>
               <div class="flex flex-wrap items-center gap-2">
-                <USelect :model-value="playlist.contentRule" :items="[{ label: 'Restricted', value: 'restricted' }, { label: '不计入普通额度', value: 'exempt' }]" size="xs" @update:model-value="updateRule(playlist.id, 'playlist', String($event))" />
+                <USelect :model-value="playlist.contentRule" :items="contentRuleOptions" class="min-w-44" size="xs" @update:model-value="updateRule(playlist.id, 'playlist', String($event))" />
                 <UButton variant="ghost" size="xs" @click="showVideoOverrides('playlist', playlist.id, playlist.playlistTitle)">Video overrides</UButton>
                 <UButton color="neutral" variant="ghost" size="xs" icon="i-heroicons-trash" @click="deleteContent(playlist.id, 'playlist')">Remove</UButton>
               </div>
@@ -316,7 +331,7 @@ function formatDuration(seconds: number | null): string {
             <p v-if="!video.isAvailable" class="text-xs text-red-500">Unavailable</p>
             <template #footer>
               <div class="flex flex-wrap items-center gap-2">
-                <USelect :model-value="video.contentRule" :items="[{ label: 'Restricted', value: 'restricted' }, { label: '不计入普通额度', value: 'exempt' }]" size="xs" @update:model-value="updateRule(video.id, 'video', String($event))" />
+                <USelect :model-value="video.contentRule" :items="contentRuleOptions" class="min-w-44" size="xs" @update:model-value="updateRule(video.id, 'video', String($event))" />
                 <UButton color="neutral" variant="ghost" size="xs" icon="i-heroicons-trash" @click="deleteContent(video.id, 'video')">Remove</UButton>
               </div>
             </template>
@@ -341,7 +356,7 @@ function formatDuration(seconds: number | null): string {
         <div v-for="video in overrideVideos" :key="video.videoId" class="flex items-center gap-3 py-3">
           <img :src="video.videoThumbnail" class="h-12 w-20 rounded object-cover" />
           <p class="flex-1 truncate">{{ video.videoTitle }}</p>
-          <USelect :model-value="overrideFor(video.videoId)" :items="[{ label: 'Inherit', value: 'inherit' }, { label: 'Restricted', value: 'restricted' }, { label: '不计入普通额度', value: 'exempt' }]" size="xs" @update:model-value="updateVideoOverride(video.videoId, String($event))" />
+          <USelect :model-value="overrideFor(video.videoId)" :items="videoRuleOptions" class="min-w-48" size="xs" @update:model-value="updateVideoOverride(video.videoId, String($event))" />
         </div>
       </div>
     </UCard>
