@@ -63,9 +63,9 @@ async function toggleFavorite(videoId: string) {
 
 <template>
   <div class="zt-page">
-    <div class="mb-8 flex items-center gap-4 border-b border-gray-200 pb-6">
-      <NuxtLink to="/browse">
-        <UButton color="gray" variant="ghost" icon="i-heroicons-arrow-left" />
+    <div class="mb-5 flex items-center gap-3 border-b border-gray-200 pb-4 sm:gap-4">
+      <NuxtLink to="/browse" class="flex min-h-11 min-w-11 items-center justify-center rounded-full text-gray-700 hover:bg-gray-100" aria-label="Back to browse">
+        <UIcon name="i-heroicons-arrow-left" class="h-5 w-5" />
       </NuxtLink>
       <img
         v-if="data?.playlist?.thumbnail"
@@ -76,7 +76,7 @@ async function toggleFavorite(videoId: string) {
         <p class="text-sm font-medium text-[#065fd4]">Playlist</p>
         <h1 class="truncate text-2xl font-bold tracking-tight">{{ data?.playlist?.title }}</h1>
       </div>
-      <span class="text-xs text-gray-500">Updated automatically</span>
+      <span class="hidden text-xs text-gray-500 sm:block">Updated automatically</span>
     </div>
 
     <UAlert v-if="loadError" color="red" title="Unable to load playlist videos" :description="loadError" class="mb-4" />
@@ -99,7 +99,7 @@ async function toggleFavorite(videoId: string) {
         class="zt-video-card group"
         :class="{ 'pointer-events-none opacity-50': blocked(video) }"
       >
-        <div class="relative">
+        <div class="zt-video-card__media">
           <img
             :src="video.videoThumbnail"
             :alt="video.videoTitle"
@@ -113,7 +113,7 @@ async function toggleFavorite(videoId: string) {
             color="neutral"
             variant="solid"
             size="xs"
-            class="absolute right-2 top-2 min-h-11 min-w-11"
+            class="zt-video-card__favorite"
             :aria-label="data.favoriteVideoIds?.includes(video.videoId) ? 'Remove from Favorites' : 'Add to Favorites'"
             @click.prevent.stop="toggleFavorite(video.videoId)"
           />

@@ -12,9 +12,7 @@ const { data: childrenData } = useApi<any>('/api/admin/children')
         <h1 class="text-3xl font-bold tracking-tight">Accounts</h1>
         <p class="mt-2 text-sm text-gray-500">Accounts appear here automatically after their first sign-in.</p>
       </div>
-      <NuxtLink to="/browse">
-        <UButton icon="i-heroicons-play-solid">Open viewer</UButton>
-      </NuxtLink>
+      <UButton to="/browse" icon="i-heroicons-play-solid">Open viewer</UButton>
     </div>
 
     <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
@@ -39,9 +37,7 @@ const { data: childrenData } = useApi<any>('/api/admin/children')
         </div>
 
         <template #footer>
-          <NuxtLink :to="`/admin/child/${child.id}/manage`">
-            <UButton block variant="soft">Manage Content</UButton>
-          </NuxtLink>
+          <UButton :to="`/admin/child/${child.id}/manage`" block variant="soft">Manage Content</UButton>
         </template>
       </UCard>
     </div>

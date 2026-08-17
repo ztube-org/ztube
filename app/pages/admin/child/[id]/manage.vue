@@ -262,8 +262,8 @@ function formatPublishedDate(value: string | null): string {
 <template>
   <div class="zt-page">
     <div class="mb-5 flex items-center gap-3 border-b border-gray-200 pb-4">
-      <NuxtLink to="/admin">
-        <UButton color="gray" variant="ghost" icon="i-heroicons-arrow-left" />
+      <NuxtLink to="/admin" class="flex min-h-11 min-w-11 items-center justify-center rounded-full text-gray-700 hover:bg-gray-100" aria-label="Back to accounts">
+        <UIcon name="i-heroicons-arrow-left" class="h-5 w-5" />
       </NuxtLink>
       <div>
         <p class="text-sm font-medium text-[#065fd4]">Child settings</p>
@@ -404,6 +404,7 @@ function formatPublishedDate(value: string | null): string {
         <UInput
           v-model="addUrl"
           placeholder="Paste YouTube URL (video, playlist, or channel)"
+          aria-label="YouTube video, playlist, or channel URL"
           class="flex-1"
           required
         />
@@ -530,7 +531,7 @@ function formatPublishedDate(value: string | null): string {
       <p v-else-if="!overrideVideos.length" class="text-gray-500">No videos are cached yet. Use Sync on the content card and try again.</p>
       <div v-else class="divide-y">
         <div v-for="video in overrideVideos" :key="video.videoId" class="flex items-center gap-3 py-3">
-          <img :src="video.videoThumbnail" class="h-12 w-20 rounded object-cover" />
+          <img :src="video.videoThumbnail" :alt="video.videoTitle" class="h-12 w-20 rounded object-cover" />
           <p class="flex-1 truncate">{{ video.videoTitle }}</p>
           <USelect :model-value="overrideFor(video.videoId)" :items="videoRuleOptions" class="min-h-11 min-w-48" size="xs" @update:model-value="updateVideoOverride(video.videoId, String($event))" />
           <UButton color="primary" variant="soft" icon="i-heroicons-megaphone" class="min-h-11" @click="recommendVideo(video.videoId)">{{ recommendedVideoId === video.videoId ? 'Recommended' : 'Recommend' }}</UButton>

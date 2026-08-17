@@ -72,7 +72,7 @@ async function toggleFavorite(video: any) {
       </div>
       <div class="zt-video-grid">
         <NuxtLink v-for="video in data.recommendations" :key="video.videoId" :to="`/watch?v=${video.videoId}`" class="zt-video-card group">
-          <div class="relative">
+          <div class="zt-video-card__media">
             <img :src="video.videoThumbnail" :alt="video.videoTitle" class="zt-thumbnail" />
             <span v-if="video.duration" class="zt-duration">{{ formatDuration(video.duration) }}</span>
             <UBadge color="primary" variant="solid" class="absolute left-2 top-2">NEW</UBadge>
@@ -87,7 +87,7 @@ async function toggleFavorite(video: any) {
       <h2 class="zt-section-title">Continue Watching</h2>
       <div class="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-3">
         <NuxtLink v-for="video in data.continueWatching" :key="video.videoId" :to="`/watch?v=${video.videoId}`" class="zt-video-card group w-48 shrink-0 snap-start sm:w-52">
-          <div class="relative">
+          <div class="zt-video-card__media">
             <img :src="video.videoThumbnail" :alt="video.videoTitle" class="zt-thumbnail" />
             <span class="zt-duration">{{ formatDuration(video.positionSeconds) }} / {{ formatDuration(video.duration) }}</span>
             <div class="absolute inset-x-0 bottom-0 h-1 bg-gray-300"><div class="h-full bg-[#065fd4]" :style="{ width: `${progressPercent(video)}%` }" /></div>
@@ -102,10 +102,10 @@ async function toggleFavorite(video: any) {
       <h2 class="zt-section-title">Favorites</h2>
       <div class="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-3">
         <NuxtLink v-for="video in data.favorites" :key="video.videoId" :to="`/watch?v=${video.videoId}`" class="zt-video-card group w-48 shrink-0 snap-start sm:w-52">
-          <div class="relative">
+          <div class="zt-video-card__media">
             <img :src="video.videoThumbnail" :alt="video.videoTitle" class="zt-thumbnail" />
             <span v-if="video.duration" class="zt-duration">{{ formatDuration(video.duration) }}</span>
-            <UButton icon="i-heroicons-star-solid" color="neutral" variant="solid" size="xs" class="absolute right-2 top-2 min-h-11 min-w-11" aria-label="Remove from Favorites" @click.prevent.stop="toggleFavorite(video)" />
+            <UButton icon="i-heroicons-star-solid" color="neutral" variant="solid" size="xs" class="zt-video-card__favorite" aria-label="Remove from Favorites" @click.prevent.stop="toggleFavorite(video)" />
           </div>
           <p class="mt-3 font-semibold leading-5 line-clamp-2">{{ video.videoTitle }}</p>
           <p class="mt-1 truncate text-sm text-[#606060]">{{ video.channelTitle }}</p>
@@ -129,7 +129,7 @@ async function toggleFavorite(video: any) {
               :src="channel.channelThumbnail"
               :alt="channel.channelTitle"
               size="xl"
-              class="mb-2 transition group-hover:ring-2 group-hover:ring-[#065fd4]"
+              class="zt-source-artwork mb-2 transition group-hover:ring-2 group-hover:ring-[#065fd4]"
             />
             <p class="text-sm font-medium truncate w-full">{{ channel.channelTitle }}</p>
             <p v-if="!channel.isAvailable" class="text-xs text-amber-600">Tap to reload videos</p>
@@ -152,7 +152,7 @@ async function toggleFavorite(video: any) {
           class="zt-video-card group"
           :class="{ 'opacity-75': !playlist.isAvailable }"
         >
-          <div class="relative">
+          <div class="zt-video-card__media">
             <img
               :src="playlist.playlistThumbnail"
               :alt="playlist.playlistTitle"
@@ -182,7 +182,7 @@ async function toggleFavorite(video: any) {
           class="zt-video-card group"
           :class="{ 'opacity-50 pointer-events-none': !video.isAvailable || bucketFor(video)?.locked || data?.policy?.blocked }"
         >
-          <div class="relative">
+          <div class="zt-video-card__media">
             <img
               :src="video.videoThumbnail"
               :alt="video.videoTitle"
@@ -196,7 +196,7 @@ async function toggleFavorite(video: any) {
               color="neutral"
               variant="solid"
               size="xs"
-              class="absolute right-2 top-2 min-h-11 min-w-11"
+              class="zt-video-card__favorite"
               :aria-label="data.favoriteVideoIds?.includes(video.videoId) ? 'Remove from Favorites' : 'Add to Favorites'"
               @click.prevent.stop="toggleFavorite(video)"
             />

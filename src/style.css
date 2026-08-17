@@ -67,6 +67,34 @@ button, a, input, select {
   border-radius: 0.75rem;
   color: inherit;
   text-decoration: none;
+  outline-offset: 0.2rem;
+}
+
+.zt-video-card__media {
+  position: relative;
+}
+
+.zt-video-card__favorite {
+  position: absolute;
+  inset-block-start: 0.5rem;
+  inset-inline-end: 0.5rem;
+  z-index: 1;
+  display: inline-flex;
+  inline-size: 2.75rem;
+  block-size: 2.75rem;
+  min-inline-size: 2.75rem;
+  min-block-size: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgb(255 255 255 / 72%);
+  border-radius: 9999px;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 28%);
+}
+
+.zt-source-artwork {
+  inline-size: 5rem;
+  block-size: 5rem;
 }
 
 .zt-thumbnail {
@@ -102,12 +130,72 @@ button, a, input, select {
   background: var(--zt-surface);
 }
 
+.zt-watch-shell {
+  width: 100%;
+  max-width: 76rem;
+  margin-inline: auto;
+}
+
+.zt-watch-layout {
+  display: grid;
+  gap: 1rem;
+}
+
+.zt-watch-player {
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  background: #000;
+}
+
+.zt-watch-related {
+  width: 100%;
+  overflow: hidden;
+}
+
+.zt-watch-related__list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
 @media (min-width: 560px) {
   .zt-video-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+@media (min-width: 640px) {
+  .zt-watch-shell { padding: 1rem; }
+  .zt-watch-player { border-radius: 0.75rem; }
+  .zt-watch-related__list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (min-width: 768px) {
+  .zt-source-artwork {
+    inline-size: 6rem;
+    block-size: 6rem;
+  }
+}
+
 @media (min-width: 820px) {
   .zt-video-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap-inline: 1.25rem; }
+}
+
+@media (min-width: 1024px) {
+  .zt-watch-shell { padding: 1rem 1.25rem 1.5rem; }
+  .zt-watch-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
+    align-items: start;
+  }
+  .zt-watch-layout--solo {
+    display: block;
+    max-width: 56rem;
+    margin-inline: auto;
+  }
+  .zt-watch-related {
+    position: sticky;
+    top: 4.5rem;
+    max-height: calc(100vh - 6.5rem);
+    overflow-y: auto;
+  }
+  .zt-watch-related__list { display: block; }
 }
 
 @media (min-width: 1180px) {

@@ -9,8 +9,13 @@ export interface CurrentUser {
 }
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number, readonly response: Record<string, unknown>) {
+  readonly status: number
+  readonly response: Record<string, unknown>
+
+  constructor(message: string, status: number, response: Record<string, unknown>) {
     super(message)
+    this.status = status
+    this.response = response
   }
 }
 
@@ -33,7 +38,7 @@ export function useApi<T>(url: string) {
   async function refresh() {
     try { data.value = await apiFetch<T>(url); error.value = null } catch (value) { error.value = value instanceof Error ? value : new Error('Request failed'); throw value }
   }
-  void refresh()
+  void refresh().catch(() => undefined)
   return { data, error: readonly(error), refresh }
 }
 
