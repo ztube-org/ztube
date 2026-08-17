@@ -44,13 +44,6 @@ async function toggleFavorite(video: any) {
 
 <template>
   <div class="zt-page">
-    <div class="mb-7 flex items-end justify-between gap-4">
-      <div>
-        <p class="mb-1 text-sm font-medium text-[#065fd4]">Your approved library</p>
-        <h1 class="text-3xl font-bold tracking-tight">Watch</h1>
-      </div>
-    </div>
-
     <section v-if="data?.recommendations?.length" class="mb-10 rounded-2xl bg-blue-50 p-4 ring-1 ring-blue-200">
       <div class="mb-3 flex items-center gap-2">
         <UIcon name="i-heroicons-megaphone" class="h-6 w-6 text-[#065fd4]" />
@@ -72,8 +65,8 @@ async function toggleFavorite(video: any) {
 
     <section v-if="data?.continueWatching?.length" class="mb-10">
       <h2 class="zt-section-title">Continue Watching</h2>
-      <div class="zt-video-grid">
-        <NuxtLink v-for="video in data.continueWatching" :key="video.videoId" :to="`/watch?v=${video.videoId}`" class="zt-video-card group">
+      <div class="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-3">
+        <NuxtLink v-for="video in data.continueWatching" :key="video.videoId" :to="`/watch?v=${video.videoId}`" class="zt-video-card group w-48 shrink-0 snap-start sm:w-52">
           <div class="relative">
             <img :src="video.videoThumbnail" :alt="video.videoTitle" class="zt-thumbnail" />
             <span class="zt-duration">{{ formatDuration(video.positionSeconds) }} / {{ formatDuration(video.duration) }}</span>
@@ -87,8 +80,8 @@ async function toggleFavorite(video: any) {
 
     <section v-if="data?.favorites?.length" class="mb-10">
       <h2 class="zt-section-title">Favorites</h2>
-      <div class="zt-video-grid">
-        <NuxtLink v-for="video in data.favorites" :key="video.videoId" :to="`/watch?v=${video.videoId}`" class="zt-video-card group">
+      <div class="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-3">
+        <NuxtLink v-for="video in data.favorites" :key="video.videoId" :to="`/watch?v=${video.videoId}`" class="zt-video-card group w-48 shrink-0 snap-start sm:w-52">
           <div class="relative">
             <img :src="video.videoThumbnail" :alt="video.videoTitle" class="zt-thumbnail" />
             <span v-if="video.duration" class="zt-duration">{{ formatDuration(video.duration) }}</span>

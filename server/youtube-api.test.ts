@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { fetchChannelMetadata, YouTubeApiError } from './utils/youtube-api.ts'
+import { fetchChannelMetadata, fetchVideoMetadata, YouTubeApiError } from './utils/youtube-api.ts'
 
 test('reports an invalid YouTube API key instead of misreporting a missing channel', async () => {
   const originalFetch = globalThis.fetch
@@ -13,6 +13,24 @@ test('reports an invalid YouTube API key instead of misreporting a missing chann
       fetchChannelMetadata('@MarkRober', 'invalid-key'),
       (error: unknown) => error instanceof YouTubeApiError && error.message === 'YouTube API key is invalid; update YOUTUBE_API_KEY',
     )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('reads the video description without requesting comments', async () => {
+  const originalFetch = globalThis.fetch
+  let requestedUrl = ''
+  globalThis.fetch = async (input) => {
+    requestedUrl = String(input)
+    return Response.json({ items: [{ id: 'video', snippet: { title: 'Title', description: 'First line\nSecond line', channelTitle: 'Channel' }, contentDetails: { duration: 'PT10M' } }] })
+  }
+
+  try {
+    const video = await fetchVideoMetadata('video', 'test-key')
+    assert.equal(video.description, 'First line\nSecond line')
+    assert.match(requestedUrl, /\/videos\?part=snippet%2CcontentDetails|\/videos\?part=snippet,contentDetails/)
+    assert.doesNotMatch(requestedUrl, /comment/i)
   } finally {
     globalThis.fetch = originalFetch
   }

@@ -33,6 +33,10 @@ const playbackError = ref<string | null>(null)
 const remainingSeconds = ref<number | null>(null)
 const usageBucket = ref<'restricted' | 'exempt'>('restricted')
 const favorite = ref(false)
+const videoTitle = ref('')
+const videoDescription = ref('')
+const channelTitle = ref('')
+const descriptionExpanded = ref(false)
 let reporter: ReturnType<typeof createPlaybackReporter> | null = null
 
 const warning = computed(() => {
@@ -51,14 +55,17 @@ function formatRemaining(seconds: number) {
 
 onMounted(async () => {
   try {
-    let authorization!: { sessionId: string; remainingSeconds: number; usageBucket: 'restricted' | 'exempt'; resumeAt: number; favorite: boolean }
+    let authorization!: { sessionId: string; remainingSeconds: number; usageBucket: 'restricted' | 'exempt'; resumeAt: number; favorite: boolean; videoTitle: string; videoDescription: string; channelTitle: string }
     player.value = await authorizeAndCreatePlayer(
       videoId,
       async requestedVideoId => {
-        const response = await apiFetch<{ authorization: { sessionId: string; remainingSeconds: number; usageBucket: 'restricted' | 'exempt'; resumeAt: number; favorite: boolean } }>('/api/child/playback-authorizations', { method: 'POST', body: { videoId: requestedVideoId } })
+        const response = await apiFetch<{ authorization: { sessionId: string; remainingSeconds: number; usageBucket: 'restricted' | 'exempt'; resumeAt: number; favorite: boolean; videoTitle: string; videoDescription: string; channelTitle: string } }>('/api/child/playback-authorizations', { method: 'POST', body: { videoId: requestedVideoId } })
         authorization = response.authorization
         usageBucket.value = authorization.usageBucket
         favorite.value = authorization.favorite
+        videoTitle.value = authorization.videoTitle
+        videoDescription.value = authorization.videoDescription
+        channelTitle.value = authorization.channelTitle
       },
       () => createYouTubePlayer('youtube-player', {
         videoId,
@@ -66,6 +73,7 @@ onMounted(async () => {
           if (authorization.resumeAt >= 30) readyPlayer.seekTo?.(authorization.resumeAt, true)
         },
         onStateChange: (state: PlaybackState) => reporter?.setState(state),
+        onError: error => { playbackError.value = error.message },
       }),
     )
     reporter = createPlaybackReporter({
@@ -114,8 +122,10 @@ async function toggleFavorite() {
         <!-- Video Player -->
         <div class="aspect-video overflow-hidden bg-black sm:rounded-xl">
           <div v-if="!playbackError" id="youtube-player" class="w-full h-full"></div>
-          <div v-else class="flex h-full items-center justify-center p-6 text-center text-blue-200">
-            {{ playbackError }}
+          <div v-else class="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-white" role="alert">
+            <UIcon name="i-heroicons-exclamation-triangle" class="h-8 w-8 text-amber-400" />
+            <p class="max-w-xl font-medium">{{ playbackError }}</p>
+            <p class="max-w-xl text-sm text-gray-300">If Screen Time is enabled, ask the Admin to allow YouTube embedded videos, then reload this page.</p>
           </div>
         </div>
 
@@ -132,6 +142,16 @@ async function toggleFavorite() {
             </UButton>
           </div>
         </div>
+
+        <section v-if="videoTitle || videoDescription" class="border-b border-gray-200 bg-white p-4 sm:mt-3 sm:rounded-xl sm:border" aria-label="Video details">
+          <h1 class="text-lg font-semibold leading-6">{{ videoTitle }}</h1>
+          <p v-if="channelTitle" class="mt-1 text-sm text-[#606060]">{{ channelTitle }}</p>
+          <h2 v-if="videoDescription" id="video-description-heading" class="mt-4 text-sm font-semibold">Description</h2>
+          <p v-if="videoDescription" class="mt-1 whitespace-pre-wrap text-sm leading-5 text-[#606060]" :class="{ 'line-clamp-3': !descriptionExpanded }">{{ videoDescription }}</p>
+          <button v-if="videoDescription.length > 240" type="button" class="mt-1 min-h-11 rounded-lg text-sm font-semibold text-[#065fd4]" @click="descriptionExpanded = !descriptionExpanded">
+            {{ descriptionExpanded ? 'Show less' : 'Show more' }}
+          </button>
+        </section>
       </div>
 
       <!-- Playlist Sidebar -->

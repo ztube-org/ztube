@@ -242,7 +242,7 @@ export function createApp(dependencies: AppDependencies = {}) {
     if (parsed.type === 'video') {
       const item = await fetchVideoMetadata(parsed.id, c.env.YOUTUBE_API_KEY)
       if (isShortDuration(item.duration)) throw new HTTPException(400, { message: 'Videos of 3 minutes or less are not supported' })
-      const [content] = await db.insert(schema.allowedVideos).values({ childId: input.childId, videoId: item.videoId, videoTitle: item.title, videoThumbnail: item.thumbnail, duration: item.duration, channelTitle: item.channelTitle, publishedAt: item.publishedAt, lastFetchedAt: new Date(), isAvailable: true }).returning()
+      const [content] = await db.insert(schema.allowedVideos).values({ childId: input.childId, videoId: item.videoId, videoTitle: item.title, videoDescription: item.description, videoThumbnail: item.thumbnail, duration: item.duration, channelTitle: item.channelTitle, publishedAt: item.publishedAt, lastFetchedAt: new Date(), isAvailable: true }).returning()
       await db.insert(schema.videoRecommendations).values({ childId: input.childId, videoId: item.videoId }).onConflictDoUpdate({
         target: [schema.videoRecommendations.childId, schema.videoRecommendations.videoId],
         set: { recommendedAt: new Date(), seenAt: null },
@@ -341,7 +341,7 @@ export function createApp(dependencies: AppDependencies = {}) {
       ),
     })
     const override = await db.query.videoContentRules.findFirst({ where: and(eq(schema.videoContentRules.childId, user.id!), eq(schema.videoContentRules.videoId, input.videoId)) })
-    const channels = await db.select({ id: schema.allowedChannels.id, contentRule: schema.allowedChannels.contentRule, videoId: schema.channelVideos.videoId, videoTitle: schema.channelVideos.videoTitle, videoThumbnail: schema.channelVideos.videoThumbnail, duration: schema.channelVideos.duration, channelTitle: schema.channelVideos.channelTitle, publishedAt: schema.channelVideos.publishedAt })
+    const channels = await db.select({ id: schema.allowedChannels.id, contentRule: schema.allowedChannels.contentRule, videoId: schema.channelVideos.videoId, videoTitle: schema.channelVideos.videoTitle, videoDescription: schema.channelVideos.videoDescription, videoThumbnail: schema.channelVideos.videoThumbnail, duration: schema.channelVideos.duration, channelTitle: schema.channelVideos.channelTitle, publishedAt: schema.channelVideos.publishedAt })
       .from(schema.allowedChannels)
       .innerJoin(schema.channelVideos, eq(schema.channelVideos.channelId, schema.allowedChannels.channelId))
       .where(and(
@@ -350,7 +350,7 @@ export function createApp(dependencies: AppDependencies = {}) {
         eq(schema.channelVideos.videoId, input.videoId),
       ))
       .all()
-    const playlists = await db.select({ id: schema.allowedPlaylists.id, contentRule: schema.allowedPlaylists.contentRule, videoId: schema.playlistVideos.videoId, videoTitle: schema.playlistVideos.videoTitle, videoThumbnail: schema.playlistVideos.videoThumbnail, duration: schema.playlistVideos.duration, channelTitle: schema.playlistVideos.channelTitle, publishedAt: schema.playlistVideos.publishedAt })
+    const playlists = await db.select({ id: schema.allowedPlaylists.id, contentRule: schema.allowedPlaylists.contentRule, videoId: schema.playlistVideos.videoId, videoTitle: schema.playlistVideos.videoTitle, videoDescription: schema.playlistVideos.videoDescription, videoThumbnail: schema.playlistVideos.videoThumbnail, duration: schema.playlistVideos.duration, channelTitle: schema.playlistVideos.channelTitle, publishedAt: schema.playlistVideos.publishedAt })
       .from(schema.allowedPlaylists)
       .innerJoin(schema.playlistVideos, eq(schema.playlistVideos.playlistId, schema.allowedPlaylists.playlistId))
       .where(and(
@@ -371,6 +371,7 @@ export function createApp(dependencies: AppDependencies = {}) {
     const winningRules = directRules.length ? directRules : playlists.length ? playlists.map(item => item.contentRule) : channels.map(item => item.contentRule)
     const resolvedRule = winningRules.includes('restricted') ? 'restricted' : 'exempt'
     const source = directRules.length ? 'video' : playlists.length ? 'playlist' : 'channel'
+    const video = directMatches[0] ?? playlists[0] ?? channels[0]
     const usageBucket = resolvedRule === 'exempt' ? 'exempt' : 'restricted'
     const usage = await dailyUsage(db, user.id!, day.localDate)
     const limits = effectiveLimits(day.allowanceMinutes, settings.safetyCapMinutes, usage)
@@ -404,6 +405,9 @@ export function createApp(dependencies: AppDependencies = {}) {
         leaseExpiresAt: leaseExpiresAt.toISOString(),
         resumeAt: progress?.positionSeconds ?? 0,
         favorite: Boolean(favorite),
+        videoTitle: video.videoTitle,
+        videoDescription: video.videoDescription ?? '',
+        channelTitle: video.channelTitle ?? '',
       },
     })
   })
@@ -595,11 +599,11 @@ async function adminChild(c: ApiContext) {
 async function approvedVideoMetadata(db: ReturnType<typeof drizzle<typeof schema>>, childId: number, videoId: string) {
   const direct = await db.query.allowedVideos.findFirst({ where: and(eq(schema.allowedVideos.childId, childId), eq(schema.allowedVideos.videoId, videoId), eq(schema.allowedVideos.isAvailable, true)) })
   if (direct) return direct
-  const playlist = await db.select({ videoId: schema.playlistVideos.videoId, videoTitle: schema.playlistVideos.videoTitle, videoThumbnail: schema.playlistVideos.videoThumbnail, duration: schema.playlistVideos.duration, channelTitle: schema.playlistVideos.channelTitle, publishedAt: schema.playlistVideos.publishedAt })
+  const playlist = await db.select({ videoId: schema.playlistVideos.videoId, videoTitle: schema.playlistVideos.videoTitle, videoDescription: schema.playlistVideos.videoDescription, videoThumbnail: schema.playlistVideos.videoThumbnail, duration: schema.playlistVideos.duration, channelTitle: schema.playlistVideos.channelTitle, publishedAt: schema.playlistVideos.publishedAt })
     .from(schema.allowedPlaylists).innerJoin(schema.playlistVideos, eq(schema.playlistVideos.playlistId, schema.allowedPlaylists.playlistId))
     .where(and(eq(schema.allowedPlaylists.childId, childId), eq(schema.allowedPlaylists.isAvailable, true), eq(schema.playlistVideos.videoId, videoId))).get()
   if (playlist) return playlist
-  return await db.select({ videoId: schema.channelVideos.videoId, videoTitle: schema.channelVideos.videoTitle, videoThumbnail: schema.channelVideos.videoThumbnail, duration: schema.channelVideos.duration, channelTitle: schema.channelVideos.channelTitle, publishedAt: schema.channelVideos.publishedAt })
+  return await db.select({ videoId: schema.channelVideos.videoId, videoTitle: schema.channelVideos.videoTitle, videoDescription: schema.channelVideos.videoDescription, videoThumbnail: schema.channelVideos.videoThumbnail, duration: schema.channelVideos.duration, channelTitle: schema.channelVideos.channelTitle, publishedAt: schema.channelVideos.publishedAt })
     .from(schema.allowedChannels).innerJoin(schema.channelVideos, eq(schema.channelVideos.channelId, schema.allowedChannels.channelId))
     .where(and(eq(schema.allowedChannels.childId, childId), eq(schema.allowedChannels.isAvailable, true), eq(schema.channelVideos.videoId, videoId))).get() ?? null
 }
@@ -642,7 +646,7 @@ async function channelOrPlaylist(c: ApiContext, kind: 'channel' | 'playlist') {
   }
   const result = await fetchPlaylistVideosPage(item.playlistId, c.env.YOUTUBE_API_KEY, pageToken)
   const { videos, rejectedVideoIds } = excludeShortVideos(result.videos)
-  await cachePlaylistVideoPage(db, item.id, item.playlistId, videos, rejectedVideoIds, page * 50)
+  await cachePlaylistVideoPage(db, item.id, item.playlistId, videos, rejectedVideoIds, page * 50, !pageToken)
   const favoriteVideoIds = await favoriteVideoIdsFor(db, user.id!, videos)
   return c.json({ playlist: { id: item.id, playlistId: item.playlistId, title: item.playlistTitle, thumbnail: item.playlistThumbnail, isAvailable: true, contentRule: item.contentRule }, videos: presentVideos(videos), favoriteVideoIds, nextPageToken: result.nextPageToken })
 }
@@ -665,15 +669,16 @@ function presentVideos(videos: Awaited<ReturnType<typeof fetchPlaylistVideosPage
 async function cacheChannelVideoPage(db: ReturnType<typeof drizzle<typeof schema>>, allowedId: number, channelId: string, videos: Awaited<ReturnType<typeof fetchPlaylistVideosPage>>['videos'], rejectedVideoIds: string[], positionOffset: number) {
   const videoIds = [...videos.map(video => video.videoId), ...rejectedVideoIds]
   if (videoIds.length) await db.delete(schema.channelVideos).where(and(eq(schema.channelVideos.channelId, channelId), inArray(schema.channelVideos.videoId, videoIds)))
-  const rows = videos.map((video, index) => ({ channelId, videoId: video.videoId, position: positionOffset + index, videoTitle: video.title, videoThumbnail: video.thumbnail, duration: video.duration, channelTitle: video.channelTitle, publishedAt: video.publishedAt }))
+  const rows = videos.map((video, index) => ({ channelId, videoId: video.videoId, position: positionOffset + index, videoTitle: video.title, videoDescription: video.description, videoThumbnail: video.thumbnail, duration: video.duration, channelTitle: video.channelTitle, publishedAt: video.publishedAt }))
   for (let offset = 0; offset < rows.length; offset += 10) await db.insert(schema.channelVideos).values(rows.slice(offset, offset + 10))
   await db.update(schema.allowedChannels).set({ lastFetchedAt: new Date(), isAvailable: true }).where(eq(schema.allowedChannels.id, allowedId))
 }
 
-async function cachePlaylistVideoPage(db: ReturnType<typeof drizzle<typeof schema>>, allowedId: number, playlistId: string, videos: Awaited<ReturnType<typeof fetchPlaylistVideosPage>>['videos'], rejectedVideoIds: string[], positionOffset: number) {
+async function cachePlaylistVideoPage(db: ReturnType<typeof drizzle<typeof schema>>, allowedId: number, playlistId: string, videos: Awaited<ReturnType<typeof fetchPlaylistVideosPage>>['videos'], rejectedVideoIds: string[], positionOffset: number, replaceCache: boolean) {
   const videoIds = [...videos.map(video => video.videoId), ...rejectedVideoIds]
-  if (videoIds.length) await db.delete(schema.playlistVideos).where(and(eq(schema.playlistVideos.playlistId, playlistId), inArray(schema.playlistVideos.videoId, videoIds)))
-  const rows = videos.map((video, index) => ({ playlistId, videoId: video.videoId, position: positionOffset + index, videoTitle: video.title, videoThumbnail: video.thumbnail, duration: video.duration, channelTitle: video.channelTitle, publishedAt: video.publishedAt }))
+  if (replaceCache) await db.delete(schema.playlistVideos).where(eq(schema.playlistVideos.playlistId, playlistId))
+  else if (videoIds.length) await db.delete(schema.playlistVideos).where(and(eq(schema.playlistVideos.playlistId, playlistId), inArray(schema.playlistVideos.videoId, videoIds)))
+  const rows = videos.map((video, index) => ({ playlistId, videoId: video.videoId, position: positionOffset + index, videoTitle: video.title, videoDescription: video.description, videoThumbnail: video.thumbnail, duration: video.duration, channelTitle: video.channelTitle, publishedAt: video.publishedAt }))
   for (let offset = 0; offset < rows.length; offset += 10) await db.insert(schema.playlistVideos).values(rows.slice(offset, offset + 10))
   await db.update(schema.allowedPlaylists).set({ lastFetchedAt: new Date(), isAvailable: true }).where(eq(schema.allowedPlaylists.id, allowedId))
 }

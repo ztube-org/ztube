@@ -29,6 +29,7 @@ function requireApiKey(apiKey: string) {
 export interface VideoMetadata {
   videoId: string
   title: string
+  description: string
   thumbnail: string
   duration: number
   channelTitle: string
@@ -62,6 +63,7 @@ export async function fetchVideoMetadata(videoId: string, key: string): Promise<
   return {
     videoId: item.id,
     title: item.snippet.title,
+    description: item.snippet.description || '',
     thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
     duration: parseDuration(item.contentDetails?.duration || 'PT0S'),
     channelTitle: item.snippet.channelTitle,
@@ -136,9 +138,10 @@ export async function fetchPlaylistVideosPage(playlistId: string, key: string, p
   const videosUrl = `${YOUTUBE_API_BASE}/videos?part=snippet,contentDetails&id=${videoIds}&key=${apiKey}`
   const videosData = await youtubeJson(videosUrl)
 
-  const metadataMap = new Map<string, { duration: number; publishedAt: Date | null }>()
+  const metadataMap = new Map<string, { description: string; duration: number; publishedAt: Date | null }>()
   for (const video of videosData.items || []) {
     metadataMap.set(video.id, {
+      description: video.snippet?.description || '',
       duration: parseDuration(video.contentDetails?.duration || 'PT0S'),
       publishedAt: video.snippet?.publishedAt ? new Date(video.snippet.publishedAt) : null,
     })
@@ -148,6 +151,7 @@ export async function fetchPlaylistVideosPage(playlistId: string, key: string, p
     videos: data.items.map((item: any, index: number) => ({
       videoId: item.contentDetails.videoId,
       title: item.snippet.title,
+      description: metadataMap.get(item.contentDetails.videoId)?.description || '',
       thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
       duration: metadataMap.get(item.contentDetails.videoId)?.duration || 0,
       channelTitle: item.snippet.channelTitle || '',

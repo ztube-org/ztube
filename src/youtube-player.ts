@@ -10,6 +10,7 @@ export interface YouTubePlayerOptions {
   videoId: string
   onReady(player: YouTubePlayer): void
   onStateChange?(state: PlaybackState): void
+  onError?(error: Error): void
 }
 
 export type PlaybackState = 'playing' | 'paused' | 'buffering' | 'ended'
@@ -40,29 +41,54 @@ let iframeApiPromise: Promise<void> | undefined
 function loadIframeApi(browser: YouTubeWindow): Promise<void> {
   if (browser.YT?.Player) return Promise.resolve()
   if (iframeApiPromise) return iframeApiPromise
-  iframeApiPromise = new Promise((resolve) => {
+  iframeApiPromise = new Promise((resolve, reject) => {
     const priorReady = browser.onYouTubeIframeAPIReady
+    const timeout = setTimeout(() => reject(new Error('YouTube could not load. Restricted mode, parental controls, or the network may be blocking playback.')), 12_000)
     browser.onYouTubeIframeAPIReady = () => {
       priorReady?.()
+      clearTimeout(timeout)
       resolve()
     }
     const script = browser.document.createElement('script')
     script.src = 'https://www.youtube.com/iframe_api'
+    script.onerror = () => {
+      clearTimeout(timeout)
+      reject(new Error('YouTube could not load. Restricted mode, parental controls, or the network may be blocking playback.'))
+    }
     browser.document.head.appendChild(script)
   })
+  iframeApiPromise.catch(() => { iframeApiPromise = undefined })
   return iframeApiPromise
+}
+
+function playbackErrorMessage(code: number): string {
+  if (code === 101 || code === 150) return 'This video cannot play here. Restricted mode, parental controls, or the network may be blocking embedded playback.'
+  if (code === 100) return 'This video is unavailable or has been removed.'
+  if (code === 2) return 'This video link is invalid.'
+  return 'YouTube could not start playback. Check parental controls and network restrictions, then try again.'
 }
 
 export async function createYouTubePlayer(elementId: string, options: YouTubePlayerOptions): Promise<YouTubePlayer> {
   const browser = window as YouTubeWindow
   await loadIframeApi(browser)
-  return new browser.YT!.Player(elementId, {
-    videoId: options.videoId,
-    playerVars: { rel: 0, modestbranding: 1, autoplay: 1 },
-    events: {
-      onReady: (event: { target: YouTubePlayer }) => options.onReady(event.target),
-      onStateChange: (event: { data: number }) => options.onStateChange?.(youtubeState(event.data)),
-    },
+  return new Promise((resolve, reject) => {
+    const player = new browser.YT!.Player(elementId, {
+      videoId: options.videoId,
+      playerVars: { rel: 0, modestbranding: 1, autoplay: 1, playsinline: 1 },
+      events: {
+        onReady: (event: { target: YouTubePlayer }) => {
+          options.onReady(event.target)
+          resolve(event.target)
+        },
+        onStateChange: (event: { data: number }) => options.onStateChange?.(youtubeState(event.data)),
+        onError: (event: { data: number }) => {
+          const error = new Error(playbackErrorMessage(event.data))
+          player.destroy?.()
+          options.onError?.(error)
+          reject(error)
+        },
+      },
+    })
   })
 }
 

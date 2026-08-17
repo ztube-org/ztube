@@ -52,6 +52,7 @@ async function fixture(identity: Identity, now = new Date('2026-08-16T12:00:00.0
   await d1.exec(await readFile(new URL('../migrations/0011_video_published_at.sql', import.meta.url), 'utf8'))
   await d1.exec(await readFile(new URL('../migrations/0012_favorites_and_playback_progress.sql', import.meta.url), 'utf8'))
   await d1.exec(await readFile(new URL('../migrations/0013_video_recommendations.sql', import.meta.url), 'utf8'))
+  await d1.exec(await readFile(new URL('../migrations/0014_video_descriptions.sql', import.meta.url), 'utf8'))
   d1.sqlite.exec(`
     INSERT INTO children (id, email) VALUES (10, 'child@example.com'), (20, 'other-child@example.com');
   `)
@@ -111,6 +112,36 @@ test('serves cached channel videos immediately while filtering short videos by d
   }
 })
 
+test('playlist refresh removes videos deleted from the YouTube playlist', async () => {
+  const { d1, request, authorize } = await fixture(child)
+  d1.sqlite.exec(`
+    INSERT INTO allowed_playlists (id, child_id, playlist_id, playlist_title, is_available)
+      VALUES (200, 10, 'curated', 'Curated', 1);
+    INSERT INTO playlist_videos (playlist_id, video_id, position, video_title, duration)
+      VALUES ('curated', 'removed', 0, 'Removed video', 600),
+             ('curated', 'retained', 1, 'Retained video', 600);
+  `)
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input))
+    if (url.pathname.endsWith('/playlistItems')) {
+      return Response.json({ items: [{ contentDetails: { videoId: 'retained' }, snippet: { title: 'Retained video', thumbnails: { medium: { url: 'thumb' } }, channelTitle: 'Channel' } }] })
+    }
+    return Response.json({ items: [{ id: 'retained', snippet: { description: 'Synced description', publishedAt: '2026-08-15T12:00:00Z' }, contentDetails: { duration: 'PT10M' } }] })
+  }
+
+  try {
+    assert.equal((await authorize('removed')).status, 200)
+    assert.equal((await request('/api/child/playlist/200/videos?refresh=true')).status, 200)
+    assert.equal((await authorize('removed')).status, 403)
+    const retained = await authorize('retained')
+    assert.equal(retained.status, 200)
+    assert.equal((await retained.json() as any).authorization.videoDescription, 'Synced description')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('shows Recommendations until opened and stores Favorites and unfinished playback progress', async () => {
   const { d1, request, authorize } = await fixture(child)
   d1.sqlite.exec("INSERT INTO allowed_videos (child_id, video_id, video_title, video_thumbnail, duration, channel_title, is_available) VALUES (10, 'favorite', 'Favorite video', 'thumb', 600, 'Channel', 1); INSERT INTO video_recommendations (child_id, video_id) VALUES (10, 'favorite')")
@@ -144,7 +175,7 @@ test('shows Recommendations until opened and stores Favorites and unfinished pla
 
 test('authorizes direct Approved Content using a controllable clock', async () => {
   const { d1, authorize } = await fixture(child)
-  d1.sqlite.exec("INSERT INTO allowed_videos (child_id, video_id, video_title, is_available) VALUES (10, 'direct', 'Direct', 1)")
+  d1.sqlite.exec("INSERT INTO allowed_videos (child_id, video_id, video_title, video_description, channel_title, is_available) VALUES (10, 'direct', 'Direct', 'A useful description', 'Channel', 1)")
   const response = await authorize('direct')
   assert.equal(response.status, 200)
   const body = await response.json() as any
@@ -152,6 +183,9 @@ test('authorizes direct Approved Content using a controllable clock', async () =
   assert.equal(body.authorization.source, 'video')
   assert.equal(body.authorization.authorizedAt, '2026-08-16T12:00:00.000Z')
   assert.equal(body.authorization.remainingSeconds, 7200)
+  assert.equal(body.authorization.videoTitle, 'Direct')
+  assert.equal(body.authorization.videoDescription, 'A useful description')
+  assert.equal(body.authorization.channelTitle, 'Channel')
   assert.match(body.authorization.sessionId, /^[0-9a-f-]{36}$/)
 })
 

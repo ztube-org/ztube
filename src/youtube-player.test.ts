@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { authorizeAndCreatePlayer, createPlaybackReporter, type YouTubePlayer, youtubeState } from './youtube-player.ts'
+import { authorizeAndCreatePlayer, createPlaybackReporter, createYouTubePlayer, type YouTubePlayer, youtubeState } from './youtube-player.ts'
 
 test('constructs the thin player adapter only after Playback Authorization succeeds', async () => {
   const calls: string[] = []
@@ -84,4 +84,28 @@ test('pauses when heartbeats cannot renew the 60-second lease', async () => {
   await new Promise(resolve => setTimeout(resolve, 0))
   assert.equal(paused, 1)
   reporter.stop()
+})
+
+test('rejects with an actionable message when YouTube blocks embedded playback', async () => {
+  let events: { onReady(event: { target: YouTubePlayer }): void; onError(event: { data: number }): void } | undefined
+  const priorWindow = globalThis.window
+  globalThis.window = {
+    YT: {
+      Player: class {
+        constructor(_elementId: string, options: any) {
+          events = options.events
+          queueMicrotask(() => events?.onError({ data: 150 }))
+        }
+      },
+    },
+  } as any
+
+  try {
+    await assert.rejects(
+      () => createYouTubePlayer('youtube-player', { videoId: 'blocked', onReady() {} }),
+      /restricted mode, parental controls, or the network/i,
+    )
+  } finally {
+    globalThis.window = priorWindow
+  }
 })
