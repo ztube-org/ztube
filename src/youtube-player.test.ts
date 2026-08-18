@@ -127,7 +127,7 @@ test('pauses hidden playback and stops when the server ends authorization', asyn
     intervalMs: 60_000,
     pause: () => { paused++ },
     onRemaining() {},
-    heartbeat: async (_sequence, state) => { states.push(state); return { remainingSeconds: 0, authorized: false } },
+    heartbeat: async (sequence, state) => { states.push(state); return { sequence, remainingSeconds: 0, authorized: false } },
   })
   document.hidden = true
   visibility?.()
@@ -162,6 +162,47 @@ test('pauses when heartbeats cannot renew the 60-second lease', async () => {
   time = 60_000
   reporter.setState('playing')
   await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(paused, 1)
+  reporter.stop()
+})
+
+test('serializes heartbeats so an older denial cannot overtake a newer acknowledgement', async () => {
+  const calls: number[] = []
+  const resolvers = new Map<number, (response: { sequence: number; remainingSeconds: number; authorized: boolean }) => void>()
+  let paused = 0
+  const reporter = createPlaybackReporter({
+    initialRemainingSeconds: 120,
+    document: { hidden: false, pictureInPictureElement: null, addEventListener() {}, removeEventListener() {} } as any,
+    intervalMs: 60_000,
+    pause: () => { paused++ },
+    onRemaining() {},
+    heartbeat: sequence => new Promise(resolve => { calls.push(sequence); resolvers.set(sequence, resolve) }),
+  })
+  reporter.setState('playing')
+  reporter.setState('paused')
+  assert.deepEqual(calls, [1])
+  resolvers.get(1)?.({ sequence: 1, remainingSeconds: 119, authorized: true })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.deepEqual(calls, [1, 2])
+  resolvers.get(2)?.({ sequence: 2, remainingSeconds: 119, authorized: true })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(paused, 0)
+  reporter.stop()
+})
+
+test('pauses when a heartbeat remains pending beyond the lease', async () => {
+  let paused = 0
+  const reporter = createPlaybackReporter({
+    initialRemainingSeconds: 120,
+    document: { hidden: false, pictureInPictureElement: null, addEventListener() {}, removeEventListener() {} } as any,
+    intervalMs: 60_000,
+    leaseMs: 10,
+    pause: () => { paused++ },
+    onRemaining() {},
+    heartbeat: () => new Promise(() => {}),
+  })
+  reporter.setState('playing')
+  await new Promise(resolve => setTimeout(resolve, 30))
   assert.equal(paused, 1)
   reporter.stop()
 })

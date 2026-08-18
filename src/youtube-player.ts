@@ -148,7 +148,7 @@ export async function createYouTubePlayer(elementId: string, options: YouTubePla
 
 export function createPlaybackReporter(options: {
   initialRemainingSeconds: number
-  heartbeat: (sequence: number, state: PlaybackState, positionSeconds: number) => Promise<{ remainingSeconds: number; authorized: boolean }>
+  heartbeat: (sequence: number, state: PlaybackState, positionSeconds: number) => Promise<{ sequence: number; remainingSeconds: number; authorized: boolean }>
   pause: () => void
   position?: () => number
   onRemaining: (seconds: number) => void
@@ -161,19 +161,41 @@ export function createPlaybackReporter(options: {
   let state: PlaybackState = 'paused'
   let remaining = options.initialRemainingSeconds
   let stopped = false
+  let sending = false
+  let sendQueued = false
   const now = options.now ?? Date.now
-  let leaseDeadline = now() + (options.leaseMs ?? 60_000)
+  const leaseMs = options.leaseMs ?? 60_000
+  let leaseDeadline = now() + leaseMs
+  let leaseTimer: ReturnType<typeof setTimeout>
+  const stopForExpiredLease = () => {
+    if (stopped || now() < leaseDeadline) return
+    stopped = true
+    clearInterval(timer)
+    document.removeEventListener('visibilitychange', visibility)
+    options.pause()
+  }
+  const armLeaseWatchdog = () => {
+    clearTimeout(leaseTimer)
+    leaseTimer = setTimeout(stopForExpiredLease, Math.max(0, leaseDeadline - now()))
+  }
   const send = async () => {
     if (stopped) return
+    if (sending) { sendQueued = true; return }
+    sending = true
+    const sentSequence = ++sequence
     try {
-      const response = await options.heartbeat(++sequence, state, Math.max(0, Math.floor(options.position?.() ?? 0)))
+      const response = await options.heartbeat(sentSequence, state, Math.max(0, Math.floor(options.position?.() ?? 0)))
       if (stopped) return
+      if (response.sequence < sentSequence) return
       remaining = response.remainingSeconds
       options.onRemaining(remaining)
       if (!response.authorized) { stopped = true; options.pause() }
-      else leaseDeadline = now() + (options.leaseMs ?? 60_000)
+      else { leaseDeadline = now() + leaseMs; armLeaseWatchdog() }
     } catch {
-      if (now() >= leaseDeadline) { stopped = true; options.pause() }
+      stopForExpiredLease()
+    } finally {
+      sending = false
+      if (!stopped && sendQueued) { sendQueued = false; void send() }
     }
   }
   const document = options.document ?? window.document
@@ -182,9 +204,10 @@ export function createPlaybackReporter(options: {
   }
   document.addEventListener('visibilitychange', visibility)
   const timer = setInterval(() => { void send() }, options.intervalMs ?? 15_000)
+  armLeaseWatchdog()
   options.onRemaining(remaining)
   return {
     setState(next: PlaybackState) { state = next; void send() },
-    stop() { stopped = true; clearInterval(timer); document.removeEventListener('visibilitychange', visibility) },
+    stop() { stopped = true; clearInterval(timer); clearTimeout(leaseTimer); document.removeEventListener('visibilitychange', visibility) },
   }
 }

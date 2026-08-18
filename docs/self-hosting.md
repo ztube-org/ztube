@@ -104,7 +104,7 @@ npx wrangler secret put ADMIN_EMAILS
 ```
 
 For example, the `ADMIN_EMAILS` value can be
-`parent1@example.com,parent2@example.com`. Email matching is case-insensitive.
+`admin1@example.com,admin2@example.com`. Email matching is case-insensitive.
 Every Admin still has a normal Child profile, which is useful for testing the
 viewer experience. Re-run `npm run deploy` after both secrets are set so the
 checked build, bindings, and current secrets are deployed together.
@@ -165,7 +165,7 @@ ZTube. New content can take a short time to populate while metadata is fetched.
 
 ### Close the direct YouTube routes
 
-Menu names vary slightly by iPadOS release. Configure Screen Time as the parent,
+Menu names vary slightly by iPadOS release. Configure Screen Time as the device administrator,
 set a Screen Time passcode the Child does not know, and then:
 
 1. Delete the YouTube app. Under **Content & Privacy Restrictions**, prevent app

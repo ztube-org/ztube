@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import { createApp } from './app.ts'
+import { expirePlaybackSessions } from './utils/playback-retention.ts'
 
 class IsolatedD1 {
   readonly sqlite = new DatabaseSync(':memory:')
@@ -42,6 +43,7 @@ async function fixture() {
     '0013_video_recommendations.sql',
     '0014_video_descriptions.sql',
     '0015_library_routines_and_profiles.sql',
+    '0016_forget_ended_playback_video.sql',
   ]) await d1.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), 'utf8'))
   d1.sqlite.exec(`
     INSERT INTO children (id, email) VALUES (10, 'child@example.com'), (20, 'other-child@example.com');
@@ -128,6 +130,16 @@ test('Daily Usage Summaries retain aggregates across Viewing Days without per-vi
   assert.equal(today.restricted.usedSeconds, 240)
   assert.equal(today.exempt.usedSeconds, 60)
   assert.equal('history' in today, false)
+})
+
+test('expired Playback Authorization cannot retain a video identity', async () => {
+  const { d1 } = await fixture()
+  d1.sqlite.exec("UPDATE playback_sessions SET video_id = 'temporary-video' WHERE id = 'session'")
+  assert.equal(await expirePlaybackSessions({ DB: d1 as unknown as D1Database }, new Date('2026-08-16T19:01:01Z')), 1)
+  assert.deepEqual(
+    { ...(d1.sqlite.prepare("SELECT last_state, ended_at, video_id FROM playback_sessions WHERE id = 'session'").get() as object) },
+    { last_state: 'ended', ended_at: 1786906860, video_id: null },
+  )
 })
 
 test('accounts cannot be manually created or deleted through Admin APIs', async () => {

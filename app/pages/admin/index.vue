@@ -12,7 +12,7 @@ const { data: childrenData } = useApi<any>('/api/admin/children')
         <h1 class="text-3xl font-bold tracking-tight">Accounts</h1>
         <p class="mt-2 text-sm text-gray-500">Accounts appear here automatically after their first sign-in.</p>
       </div>
-      <UButton to="/browse" icon="i-heroicons-play-solid">Open viewer</UButton>
+      <UButton to="/browse" icon="i-heroicons-play-solid" class="min-h-11">Open viewer</UButton>
     </div>
 
     <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
@@ -37,7 +37,7 @@ const { data: childrenData } = useApi<any>('/api/admin/children')
         </div>
 
         <template #footer>
-          <UButton :to="`/admin/child/${child.id}/manage`" block variant="soft">Manage Content</UButton>
+          <UButton :to="`/admin/child/${child.id}/manage`" block variant="soft" class="min-h-11">Manage Content</UButton>
         </template>
       </UCard>
     </div>

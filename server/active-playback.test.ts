@@ -44,7 +44,7 @@ class IsolatedD1 {
 
 async function fixture() {
   const d1 = new IsolatedD1()
-  for (const migration of ['0001_initial.sql', '0002_child_time_settings.sql', '0003_restricted_watch_time.sql', '0004_active_playback_lease.sql', '0005_content_rules.sql', '0006_video_content_rules.sql', '0007_parent_viewing_day_interventions.sql', '0008_two-role_accounts.sql', '0009_video_classifications.sql', '0010_drop_video_classifications.sql', '0011_video_published_at.sql', '0012_favorites_and_playback_progress.sql', '0013_video_recommendations.sql', '0014_video_descriptions.sql', '0015_library_routines_and_profiles.sql']) {
+  for (const migration of ['0001_initial.sql', '0002_child_time_settings.sql', '0003_restricted_watch_time.sql', '0004_active_playback_lease.sql', '0005_content_rules.sql', '0006_video_content_rules.sql', '0007_parent_viewing_day_interventions.sql', '0008_two-role_accounts.sql', '0009_video_classifications.sql', '0010_drop_video_classifications.sql', '0011_video_published_at.sql', '0012_favorites_and_playback_progress.sql', '0013_video_recommendations.sql', '0014_video_descriptions.sql', '0015_library_routines_and_profiles.sql', '0016_forget_ended_playback_video.sql']) {
     await d1.exec(await readFile(new URL(`../migrations/${migration}`, import.meta.url), 'utf8'))
   }
   d1.sqlite.exec(`
@@ -72,10 +72,38 @@ test('a second player atomically takes over the Child Active Playback', async ()
   assert.equal(Date.parse(first.leaseExpiresAt) - Date.parse(first.authorizedAt), 60_000)
   assert.notEqual(first.sessionId, second.sessionId)
   assert.equal((d1.sqlite.prepare('SELECT COUNT(*) AS count FROM playback_sessions WHERE ended_at IS NULL').get() as any).count, 1)
+  assert.equal((d1.sqlite.prepare('SELECT video_id FROM playback_sessions WHERE id = ?').get(first.sessionId) as any).video_id, null)
   assert.deepEqual(await (await heartbeat(first.sessionId, 1)).json(), {
     accepted: false, sequence: 0, remainingSeconds: 900, authorized: false,
   })
   assert.equal((await (await heartbeat(second.sessionId, 1)).json() as any).authorized, true)
+})
+
+test('splits an acknowledged playing interval at local midnight', async () => {
+  const { d1, clock, authorize, heartbeat } = await fixture()
+  clock.setUTCHours(23, 59, 50, 0)
+  const active = await authorize()
+  await heartbeat(active.sessionId, 1)
+  clock.setUTCDate(clock.getUTCDate() + 1)
+  clock.setUTCHours(0, 0, 10, 0)
+  await heartbeat(active.sessionId, 2)
+
+  assert.deepEqual(
+    d1.sqlite.prepare('SELECT viewing_day, restricted_seconds FROM daily_usage_summaries ORDER BY viewing_day').all().map(row => ({ ...row })),
+    [
+      { viewing_day: '2026-08-17', restricted_seconds: 10 },
+      { viewing_day: '2026-08-18', restricted_seconds: 10 },
+    ],
+  )
+})
+
+test('forgets the video identity when Playback Authorization ends', async () => {
+  const { d1, authorize, heartbeat } = await fixture()
+  const active = await authorize()
+  await heartbeat(active.sessionId, 1, 'ended')
+  const ended = d1.sqlite.prepare('SELECT ended_at, video_id FROM playback_sessions WHERE id = ?').get(active.sessionId) as any
+  assert.notEqual(ended.ended_at, null)
+  assert.equal(ended.video_id, null)
 })
 
 test('an expired lease charges at most its leased interval and requires reauthorization', async () => {

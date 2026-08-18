@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { sqliteTable, text, integer, uniqueIndex, index } from 'drizzle-orm/sqlite-core'
+import type { ContentRule } from '../../src/domain.ts'
 
 // Every persisted account is a Child. The Admin is configured by email and has no database profile.
 export const children = sqliteTable('children', {
@@ -93,7 +94,7 @@ export const allowedChannels = sqliteTable('allowed_channels', {
   lastFetchedAt: integer('last_fetched_at', { mode: 'timestamp' }),
   nextPageToken: text('next_page_token'),
   isAvailable: integer('is_available', { mode: 'boolean' }).default(true),
-  contentRule: text('content_rule').notNull().default('restricted'),
+  contentRule: text('content_rule').$type<ContentRule>().notNull().default('restricted'),
   tags: text('tags', { mode: 'json' }).$type<string[]>().notNull().default(sql`'[]'`),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 }, table => [
@@ -111,7 +112,7 @@ export const allowedPlaylists = sqliteTable('allowed_playlists', {
   lastFetchedAt: integer('last_fetched_at', { mode: 'timestamp' }),
   nextPageToken: text('next_page_token'),
   isAvailable: integer('is_available', { mode: 'boolean' }).default(true),
-  contentRule: text('content_rule').notNull().default('restricted'),
+  contentRule: text('content_rule').$type<ContentRule>().notNull().default('restricted'),
   tags: text('tags', { mode: 'json' }).$type<string[]>().notNull().default(sql`'[]'`),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 }, table => [
@@ -132,7 +133,7 @@ export const allowedVideos = sqliteTable('allowed_videos', {
   publishedAt: integer('published_at', { mode: 'timestamp' }),
   lastFetchedAt: integer('last_fetched_at', { mode: 'timestamp' }),
   isAvailable: integer('is_available', { mode: 'boolean' }).default(true),
-  contentRule: text('content_rule').notNull().default('restricted'),
+  contentRule: text('content_rule').$type<ContentRule>().notNull().default('restricted'),
   tags: text('tags', { mode: 'json' }).$type<string[]>().notNull().default(sql`'[]'`),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
 }, table => [
@@ -146,7 +147,7 @@ export const videoContentRules = sqliteTable('video_content_rules', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   childId: integer('child_id').notNull().references(() => children.id, { onDelete: 'cascade' }),
   videoId: text('video_id').notNull(),
-  contentRule: text('content_rule').notNull(),
+  contentRule: text('content_rule').$type<ContentRule>().notNull(),
   videoTitle: text('video_title').notNull(),
   videoThumbnail: text('video_thumbnail'),
   duration: integer('duration'),

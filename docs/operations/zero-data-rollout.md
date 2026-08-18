@@ -4,7 +4,7 @@ The initial time-control release is authorized to start from an empty ZTube data
 
 ## Enforcement boundary
 
-ZTube authorizes and meters playback inside the ZTube application. It does not block the YouTube website or app at the device, browser, router, or operating-system level. Parents who need device-level blocking must configure it separately.
+ZTube authorizes and meters playback inside the ZTube application. It does not block the YouTube website or app at the device, browser, router, or operating-system level. Admins who need device-level blocking must configure it separately.
 
 ## Production procedure
 

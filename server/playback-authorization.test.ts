@@ -55,6 +55,7 @@ async function fixture(identity: Identity, now = new Date('2026-08-16T12:00:00.0
   await d1.exec(await readFile(new URL('../migrations/0013_video_recommendations.sql', import.meta.url), 'utf8'))
   await d1.exec(await readFile(new URL('../migrations/0014_video_descriptions.sql', import.meta.url), 'utf8'))
   await d1.exec(await readFile(new URL('../migrations/0015_library_routines_and_profiles.sql', import.meta.url), 'utf8'))
+  await d1.exec(await readFile(new URL('../migrations/0016_forget_ended_playback_video.sql', import.meta.url), 'utf8'))
   d1.sqlite.exec(`
     INSERT INTO children (id, email) VALUES (10, 'child@example.com'), (20, 'other-child@example.com');
   `)
@@ -73,7 +74,7 @@ async function fixture(identity: Identity, now = new Date('2026-08-16T12:00:00.0
 
 const child: Identity = { id: 10, email: 'child@example.com', displayName: null, role: 'non-admin' }
 
-test('background sync follows stored page tokens and honors the freshness TTL', async () => {
+test('background sync stages all pages before replacing the cache and honors the freshness TTL', async () => {
   const { d1, env } = await fixture(child)
   d1.sqlite.exec("INSERT INTO allowed_playlists (id, child_id, playlist_id, playlist_title, is_available) VALUES (90, 10, 'library', 'Library', 1)")
   const originalFetch = globalThis.fetch
@@ -91,10 +92,9 @@ test('background sync follows stored page tokens and honors the freshness TTL', 
   }
   try {
     assert.deepEqual(await syncApprovedContent(env, { now: new Date('2026-08-17T12:00:00Z') }), { synced: 1, skipped: 0, failed: 0 })
-    assert.equal((d1.sqlite.prepare('SELECT next_page_token FROM allowed_playlists WHERE id = 90').get() as any).next_page_token, 'next')
-    assert.deepEqual(await syncApprovedContent(env, { now: new Date('2026-08-17T12:30:00Z') }), { synced: 1, skipped: 0, failed: 0 })
+    assert.equal((d1.sqlite.prepare('SELECT next_page_token FROM allowed_playlists WHERE id = 90').get() as any).next_page_token, null)
     assert.equal((d1.sqlite.prepare('SELECT COUNT(*) AS count FROM playlist_videos').get() as any).count, 2)
-    assert.deepEqual(await syncApprovedContent(env, { now: new Date('2026-08-17T13:00:00Z') }), { synced: 0, skipped: 1, failed: 0 })
+    assert.deepEqual(await syncApprovedContent(env, { now: new Date('2026-08-17T12:30:00Z') }), { synced: 0, skipped: 1, failed: 0 })
   } finally { globalThis.fetch = originalFetch }
 })
 
@@ -236,7 +236,7 @@ test('authorizes videos proven through an approved channel or playlist', async (
   assert.equal((await (await authorize('from-playlist')).json() as any).authorization.source, 'playlist')
 })
 
-test('rejects arbitrary video IDs and does not trust an entry route', async () => {
+test('rejects arbitrary video IDs and does not trust unverified source hints', async () => {
   const { authorize } = await fixture(child)
   const response = await authorize('arbitrary', { playlist: 'claimed-approved-playlist', channel: 'claimed-channel' })
   assert.equal(response.status, 403)

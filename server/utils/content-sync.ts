@@ -24,6 +24,17 @@ function playableVideo(video: { duration: number | null; embeddable: boolean }) 
   return video.embeddable && !shortVideo(video.duration)
 }
 
+async function fetchCompletePlaylist(playlistId: string, apiKey: string) {
+  const videos: Awaited<ReturnType<typeof fetchPlaylistVideosPage>>['videos'] = []
+  let pageToken: string | null | undefined
+  do {
+    const page = await fetchPlaylistVideosPage(playlistId, apiKey, pageToken ?? undefined)
+    videos.push(...page.videos)
+    pageToken = page.nextPageToken
+  } while (pageToken)
+  return { videos, nextPageToken: null as string | null }
+}
+
 export async function syncApprovedContent(env: Env, options: { target?: SyncTarget; force?: boolean; now?: Date } = {}): Promise<SyncResult> {
   const db = drizzle(env.DB, { schema })
   const instant = options.now ?? new Date()
@@ -44,7 +55,9 @@ export async function syncApprovedContent(env: Env, options: { target?: SyncTarg
     try {
       const metadata = !pageToken ? await fetchChannelMetadata(item.channelId, env.YOUTUBE_API_KEY) : null
       const uploadsPlaylistId = metadata?.uploadsPlaylistId ?? item.uploadsPlaylistId
-      const page = await fetchPlaylistVideosPage(uploadsPlaylistId, env.YOUTUBE_API_KEY, pageToken ?? undefined)
+      const page = pageToken
+        ? await fetchPlaylistVideosPage(uploadsPlaylistId, env.YOUTUBE_API_KEY, pageToken)
+        : await fetchCompletePlaylist(uploadsPlaylistId, env.YOUTUBE_API_KEY)
       const accepted = page.videos.filter(playableVideo)
       const rejectedIds = page.videos.filter(video => !playableVideo(video)).map(video => video.videoId)
       if (!pageToken) await db.delete(schema.channelVideos).where(eq(schema.channelVideos.channelId, item.channelId))
@@ -68,7 +81,7 @@ export async function syncApprovedContent(env: Env, options: { target?: SyncTarg
       }
       await db.update(schema.allowedChannels).set({
         uploadsPlaylistId, channelTitle: metadata?.title ?? item.channelTitle, channelThumbnail: metadata?.thumbnail ?? item.channelThumbnail,
-        nextPageToken: page.nextPageToken, lastFetchedAt: instant, isAvailable: true,
+        nextPageToken: page.nextPageToken ?? null, lastFetchedAt: instant, isAvailable: true,
       }).where(eq(schema.allowedChannels.id, item.id))
       result.synced++
     } catch (error) {
@@ -82,7 +95,9 @@ export async function syncApprovedContent(env: Env, options: { target?: SyncTarg
     if (!options.force && !pageToken && freshEnough(item.lastFetchedAt, instant)) { result.skipped++; continue }
     try {
       const metadata = !pageToken ? await fetchPlaylistMetadata(item.playlistId, env.YOUTUBE_API_KEY) : null
-      const page = await fetchPlaylistVideosPage(item.playlistId, env.YOUTUBE_API_KEY, pageToken ?? undefined)
+      const page = pageToken
+        ? await fetchPlaylistVideosPage(item.playlistId, env.YOUTUBE_API_KEY, pageToken)
+        : await fetchCompletePlaylist(item.playlistId, env.YOUTUBE_API_KEY)
       const accepted = page.videos.filter(playableVideo)
       const rejectedIds = page.videos.filter(video => !playableVideo(video)).map(video => video.videoId)
       if (!pageToken) await db.delete(schema.playlistVideos).where(eq(schema.playlistVideos.playlistId, item.playlistId))
@@ -106,7 +121,7 @@ export async function syncApprovedContent(env: Env, options: { target?: SyncTarg
       }
       await db.update(schema.allowedPlaylists).set({
         playlistTitle: metadata?.title ?? item.playlistTitle, playlistThumbnail: metadata?.thumbnail ?? item.playlistThumbnail,
-        nextPageToken: page.nextPageToken, lastFetchedAt: instant, isAvailable: true,
+        nextPageToken: page.nextPageToken ?? null, lastFetchedAt: instant, isAvailable: true,
       }).where(eq(schema.allowedPlaylists.id, item.id))
       result.synced++
     } catch (error) {

@@ -94,8 +94,9 @@ const warning = computed(() => {
 })
 
 function formatRemaining(seconds: number) {
-  const minutes = Math.ceil(seconds / 60)
-  return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
+  const minutes = Math.floor(seconds / 60)
+  const remainder = seconds % 60
+  return `${minutes}:${remainder.toString().padStart(2, '0')}`
 }
 
 onMounted(async () => {

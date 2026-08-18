@@ -216,7 +216,7 @@ async function toggleFavorite(video: any) {
     <div v-if="!data?.channels?.length && !data?.playlists?.length && !data?.videos?.length" class="text-center py-16">
       <UIcon name="i-heroicons-video-camera" class="w-16 h-16 mx-auto text-gray-400 mb-4" />
       <p class="text-gray-500 text-lg">No content yet!</p>
-      <p class="text-gray-400">Ask your parent to add some channels, playlists, or videos.</p>
+      <p class="text-gray-400">Ask an Admin to add some channels, playlists, or videos.</p>
     </div>
   </div>
 </template>

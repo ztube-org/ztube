@@ -15,19 +15,17 @@ test('Approved Content cards use larger responsive artwork', async () => {
   assert.match(styles, /@media\s*\(min-width:\s*768px\)[\s\S]*\.zt-source-artwork\s*\{[^}]*inline-size:\s*6rem;[^}]*block-size:\s*6rem;/s)
 })
 
-for (const page of ['channel/[id].vue', 'playlist/[id].vue']) {
-  test(`${page} anchors its Favorite control to the video card`, async () => {
-    const [source, styles] = await Promise.all([
-      read(`app/pages/browse/${page}`),
-      read('src/style.css'),
-    ])
+test('source pages anchor their Favorite control to the video card', async () => {
+  const [source, styles] = await Promise.all([
+    read('app/components/SourceVideoPage.vue'),
+    read('src/style.css'),
+  ])
 
-    assert.match(source, /class="zt-video-card__media"/)
-    assert.match(source, /class="zt-video-card__favorite"/)
-    assert.match(styles, /\.zt-video-card__media\s*\{[^}]*position:\s*relative;/s)
-    assert.match(styles, /\.zt-video-card__favorite\s*\{[^}]*position:\s*absolute;[^}]*inset-block-start:\s*0\.5rem;[^}]*inset-inline-end:\s*0\.5rem;/s)
-  })
-}
+  assert.match(source, /class="zt-video-card__media"/)
+  assert.match(source, /class="zt-video-card__favorite"/)
+  assert.match(styles, /\.zt-video-card__media\s*\{[^}]*position:\s*relative;/s)
+  assert.match(styles, /\.zt-video-card__favorite\s*\{[^}]*position:\s*absolute;[^}]*inset-block-start:\s*0\.5rem;[^}]*inset-inline-end:\s*0\.5rem;/s)
+})
 
 test('desktop watch page pairs a compact player with same-source videos', async () => {
   const [watch, styles] = await Promise.all([
@@ -42,13 +40,13 @@ test('desktop watch page pairs a compact player with same-source videos', async 
 })
 
 test('same-source video links carry their source and remount the player', async () => {
-  const [channel, watch, shell] = await Promise.all([
-    read('app/pages/browse/channel/[id].vue'),
+  const [source, watch, shell] = await Promise.all([
+    read('app/components/SourceVideoPage.vue'),
     read('app/pages/watch.vue'),
     read('app/app.vue'),
   ])
 
-  assert.match(channel, /\/watch\?v=\$\{video\.videoId\}&channel=\$\{channelId\}/)
+  assert.match(source, /\/watch\?v=\$\{video\.videoId\}&\$\{kind\}=\$\{sourceId\}/)
   assert.match(watch, /const relatedVideos = computed/)
   assert.match(watch, /channelParam/)
   assert.match(watch, /if \(disposed\) throw new Error\('Playback page changed'\)/)

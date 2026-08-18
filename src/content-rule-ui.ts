@@ -1,12 +1,11 @@
-export type ContentRule = 'restricted' | 'exempt'
+import type { ContentRule, WatchTimeStatus } from './domain'
+
+export type { ContentRule } from './domain'
 
 // A source can contain a more-specific video override that uses the other bucket.
 export function sourceIsNavigable() {
   return true
 }
-
-type BucketStatus = { remainingSeconds: number; locked: boolean }
-type WatchTimeStatus = { restricted: BucketStatus; exempt: BucketStatus }
 
 export function contentStatus(rule: ContentRule, watchTime: WatchTimeStatus) {
   const bucket = rule === 'exempt' ? watchTime.exempt : watchTime.restricted
