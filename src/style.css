@@ -106,6 +106,7 @@ button, a, input, select {
 }
 
 .zt-app-header {
+  padding-block-start: env(safe-area-inset-top);
   border-color: color-mix(in srgb, var(--zt-border) 90%, transparent);
   background: color-mix(in srgb, var(--zt-surface) 90%, transparent);
   box-shadow: 0 1px 0 rgb(0 0 0 / 2%);
@@ -328,8 +329,8 @@ button, a, input, select {
   }
   .zt-watch-related {
     position: sticky;
-    top: 4.5rem;
-    max-height: calc(100vh - 6.5rem);
+    top: calc(4.5rem + env(safe-area-inset-top));
+    max-height: calc(100vh - 6.5rem - env(safe-area-inset-top));
     overflow-y: auto;
   }
   .zt-watch-related__list { display: block; }

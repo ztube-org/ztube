@@ -157,7 +157,7 @@ async function toggleFavorite() {
 
 <template>
   <div class="zt-app-shell min-h-screen">
-    <header class="zt-app-header sticky top-0 z-40 flex h-14 items-center justify-between border-b px-3 backdrop-blur sm:px-5">
+    <header class="zt-app-header sticky top-0 z-40 flex min-h-14 items-center justify-between border-b px-3 backdrop-blur sm:px-5">
       <NuxtLink :to="backTarget" class="zt-icon-link flex min-h-11 items-center gap-2 rounded-full px-3 text-sm font-medium">
         <UIcon name="i-heroicons-arrow-left" class="h-5 w-5" />
         Back
