@@ -344,6 +344,7 @@ export function createApp(dependencies: AppDependencies = {}) {
     if (parsed.type === 'video') {
       const item = await fetchVideoMetadata(parsed.id, c.env.YOUTUBE_API_KEY)
       if (isShortDuration(item.duration)) throw new HTTPException(400, { message: 'Videos of 3 minutes or less are not supported' })
+      if (!item.embeddable) throw new HTTPException(400, { message: 'This video does not allow embedded playback' })
       const values = { childId: input.childId, videoId: item.videoId, videoTitle: item.title, videoDescription: item.description, videoThumbnail: item.thumbnail, duration: item.duration, channelTitle: item.channelTitle, publishedAt: item.publishedAt, lastFetchedAt: now(), isAvailable: true }
       const [content] = await db.insert(schema.allowedVideos).values(values).onConflictDoUpdate({
         target: [schema.allowedVideos.childId, schema.allowedVideos.videoId],
@@ -405,7 +406,7 @@ export function createApp(dependencies: AppDependencies = {}) {
       db.query.playbackProgress.findMany({ where: eq(schema.playbackProgress.childId, user.id!), orderBy: (table, { desc }) => [desc(table.updatedAt)], limit: 10 }),
       db.query.videoRecommendations.findMany({ where: and(eq(schema.videoRecommendations.childId, user.id!), isNull(schema.videoRecommendations.seenAt)), orderBy: (table, { desc }) => [desc(table.recommendedAt)], limit: 10 }),
     ])
-    const filteredVideos = excludeShortVideos(videos)
+    const filteredVideos = excludeUnsupportedVideos(videos)
     if (filteredVideos.rejectedVideoIds.length) {
       await db.delete(schema.allowedVideos).where(and(eq(schema.allowedVideos.childId, user.id), inArray(schema.allowedVideos.videoId, filteredVideos.rejectedVideoIds)))
     }
@@ -889,7 +890,7 @@ async function channelOrPlaylist(c: ApiContext, kind: 'channel' | 'playlist', in
       return c.json({ channel: { id: item.id, channelId: item.channelId, title: item.channelTitle, thumbnail: item.channelThumbnail, isAvailable: item.isAvailable, contentRule: item.contentRule, tags: item.tags }, videos: presentedVideos, favoriteVideoIds, nextPage: videos.length === 50 ? page + 1 : null, cached: true, ...viewing })
     }
     const result = await fetchPlaylistVideosPage(item.uploadsPlaylistId, c.env.YOUTUBE_API_KEY, pageToken)
-    const { videos, rejectedVideoIds } = excludeShortVideos(result.videos)
+    const { videos, rejectedVideoIds } = excludeUnsupportedVideos(result.videos)
     await cacheChannelVideoPage(db, item.id, item.channelId, videos, rejectedVideoIds, page * 50)
     await db.update(schema.allowedChannels).set({ nextPageToken: result.nextPageToken }).where(eq(schema.allowedChannels.id, item.id))
     const favoriteVideoIds = await favoriteVideoIdsFor(db, user.id!, videos)
@@ -912,7 +913,7 @@ async function channelOrPlaylist(c: ApiContext, kind: 'channel' | 'playlist', in
     return c.json({ playlist: { id: item.id, playlistId: item.playlistId, title: item.playlistTitle, thumbnail: item.playlistThumbnail, isAvailable: item.isAvailable, contentRule: item.contentRule, tags: item.tags }, videos: presentedVideos, favoriteVideoIds, nextPage: videos.length === 50 ? page + 1 : null, cached: true, ...viewing })
   }
   const result = await fetchPlaylistVideosPage(item.playlistId, c.env.YOUTUBE_API_KEY, pageToken)
-  const { videos, rejectedVideoIds } = excludeShortVideos(result.videos)
+  const { videos, rejectedVideoIds } = excludeUnsupportedVideos(result.videos)
   await cachePlaylistVideoPage(db, item.id, item.playlistId, videos, rejectedVideoIds, page * 50, !pageToken)
   await db.update(schema.allowedPlaylists).set({ nextPageToken: result.nextPageToken }).where(eq(schema.allowedPlaylists.id, item.id))
   const favoriteVideoIds = await favoriteVideoIdsFor(db, user.id!, videos)
@@ -927,10 +928,11 @@ function isShortDuration(duration: number | null) {
   return duration !== null && duration <= 180
 }
 
-function excludeShortVideos<T extends { videoId: string; duration: number | null }>(videos: T[]) {
+function excludeUnsupportedVideos<T extends { videoId: string; duration: number | null; embeddable?: boolean }>(videos: T[]) {
+  const supported = (video: T) => !isShortDuration(video.duration) && video.embeddable !== false
   return {
-    videos: videos.filter(video => !isShortDuration(video.duration)),
-    rejectedVideoIds: videos.filter(video => isShortDuration(video.duration)).map(video => video.videoId),
+    videos: videos.filter(supported),
+    rejectedVideoIds: videos.filter(video => !supported(video)).map(video => video.videoId),
   }
 }
 

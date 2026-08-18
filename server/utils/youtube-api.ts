@@ -26,6 +26,7 @@ const videoItemSchema = v.object({
     publishedAt: v.optional(v.string()),
   }),
   contentDetails: v.optional(v.object({ duration: v.optional(v.string()) })),
+  status: v.optional(v.object({ embeddable: v.optional(v.boolean(), true) })),
 })
 const videoListSchema = v.object({ items: v.optional(v.array(videoItemSchema), []) })
 const playlistListSchema = v.object({ items: v.optional(v.array(v.object({
@@ -83,6 +84,7 @@ export interface VideoMetadata {
   duration: number
   channelTitle: string
   publishedAt: Date | null
+  embeddable: boolean
 }
 
 export interface PlaylistMetadata {
@@ -100,7 +102,7 @@ export interface ChannelMetadata {
 
 export async function fetchVideoMetadata(videoId: string, key: string): Promise<VideoMetadata> {
   const apiKey = requireApiKey(key)
-  const url = `${YOUTUBE_API_BASE}/videos?part=snippet,contentDetails&id=${videoId}&key=${apiKey}`
+  const url = `${YOUTUBE_API_BASE}/videos?part=snippet,contentDetails,status&id=${videoId}&key=${apiKey}`
 
   const data = await youtubeJson(url, videoListSchema)
 
@@ -117,6 +119,7 @@ export async function fetchVideoMetadata(videoId: string, key: string): Promise<
     duration: parseDuration(item.contentDetails?.duration || 'PT0S'),
     channelTitle: item.snippet.channelTitle,
     publishedAt: item.snippet.publishedAt ? new Date(item.snippet.publishedAt) : null,
+    embeddable: item.status?.embeddable !== false,
   }
 }
 
@@ -185,15 +188,16 @@ export async function fetchPlaylistVideosPage(playlistId: string, key: string, p
 
   if (!videoIds) return { videos: [], nextPageToken: data.nextPageToken ?? null }
 
-  const videosUrl = `${YOUTUBE_API_BASE}/videos?part=snippet,contentDetails&id=${videoIds}&key=${apiKey}`
+  const videosUrl = `${YOUTUBE_API_BASE}/videos?part=snippet,contentDetails,status&id=${videoIds}&key=${apiKey}`
   const videosData = await youtubeJson(videosUrl, videoListSchema)
 
-  const metadataMap = new Map<string, { description: string; duration: number; publishedAt: Date | null }>()
+  const metadataMap = new Map<string, { description: string; duration: number; publishedAt: Date | null; embeddable: boolean }>()
   for (const video of videosData.items || []) {
     metadataMap.set(video.id, {
       description: video.snippet?.description || '',
       duration: parseDuration(video.contentDetails?.duration || 'PT0S'),
       publishedAt: video.snippet?.publishedAt ? new Date(video.snippet.publishedAt) : null,
+      embeddable: video.status?.embeddable !== false,
     })
   }
 
@@ -206,6 +210,7 @@ export async function fetchPlaylistVideosPage(playlistId: string, key: string, p
       duration: metadataMap.get(item.contentDetails.videoId)?.duration || 0,
       channelTitle: item.snippet.channelTitle || '',
       publishedAt: metadataMap.get(item.contentDetails.videoId)?.publishedAt ?? null,
+      embeddable: metadataMap.get(item.contentDetails.videoId)?.embeddable ?? false,
       position: index,
     })),
     nextPageToken: data.nextPageToken ?? null,

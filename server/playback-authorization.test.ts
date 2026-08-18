@@ -146,21 +146,29 @@ test('playlist refresh removes videos deleted from the YouTube playlist', async 
       VALUES (200, 10, 'curated', 'Curated', 1);
     INSERT INTO playlist_videos (playlist_id, video_id, position, video_title, duration)
       VALUES ('curated', 'removed', 0, 'Removed video', 600),
-             ('curated', 'retained', 1, 'Retained video', 600);
+             ('curated', 'retained', 1, 'Retained video', 600),
+             ('curated', 'not-embeddable', 2, 'Blocked embed', 600);
   `)
   const originalFetch = globalThis.fetch
   globalThis.fetch = async (input) => {
     const url = new URL(String(input))
     if (url.pathname.endsWith('/playlistItems')) {
-      return Response.json({ items: [{ contentDetails: { videoId: 'retained' }, snippet: { title: 'Retained video', thumbnails: { medium: { url: 'thumb' } }, channelTitle: 'Channel' } }] })
+      return Response.json({ items: [
+        { contentDetails: { videoId: 'retained' }, snippet: { title: 'Retained video', thumbnails: { medium: { url: 'thumb' } }, channelTitle: 'Channel' } },
+        { contentDetails: { videoId: 'not-embeddable' }, snippet: { title: 'Blocked embed', thumbnails: { medium: { url: 'thumb' } }, channelTitle: 'Channel' } },
+      ] })
     }
-    return Response.json({ items: [{ id: 'retained', snippet: { description: 'Synced description', publishedAt: '2026-08-15T12:00:00Z' }, contentDetails: { duration: 'PT10M' } }] })
+    return Response.json({ items: [
+      { id: 'retained', snippet: { description: 'Synced description', publishedAt: '2026-08-15T12:00:00Z' }, contentDetails: { duration: 'PT10M' }, status: { embeddable: true } },
+      { id: 'not-embeddable', snippet: { description: '', publishedAt: '2026-08-15T12:00:00Z' }, contentDetails: { duration: 'PT10M' }, status: { embeddable: false } },
+    ] })
   }
 
   try {
     assert.equal((await authorize('removed')).status, 200)
     assert.equal((await request('/api/child/playlist/200/videos?refresh=true')).status, 200)
     assert.equal((await authorize('removed')).status, 403)
+    assert.equal((await authorize('not-embeddable')).status, 403)
     const retained = await authorize('retained')
     assert.equal(retained.status, 200)
     assert.equal((await retained.json() as any).authorization.videoDescription, 'Synced description')

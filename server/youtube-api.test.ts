@@ -29,7 +29,7 @@ test('reads the video description without requesting comments', async () => {
   try {
     const video = await fetchVideoMetadata('video', 'test-key')
     assert.equal(video.description, 'First line\nSecond line')
-    assert.match(requestedUrl, /\/videos\?part=snippet%2CcontentDetails|\/videos\?part=snippet,contentDetails/)
+    assert.match(requestedUrl, /part=snippet(?:%2C|,)contentDetails(?:%2C|,)status/)
     assert.doesNotMatch(requestedUrl, /comment/i)
   } finally {
     globalThis.fetch = originalFetch

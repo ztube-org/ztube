@@ -20,6 +20,10 @@ function shortVideo(duration: number | null) {
   return duration !== null && duration <= 180
 }
 
+function playableVideo(video: { duration: number | null; embeddable: boolean }) {
+  return video.embeddable && !shortVideo(video.duration)
+}
+
 export async function syncApprovedContent(env: Env, options: { target?: SyncTarget; force?: boolean; now?: Date } = {}): Promise<SyncResult> {
   const db = drizzle(env.DB, { schema })
   const instant = options.now ?? new Date()
@@ -41,8 +45,8 @@ export async function syncApprovedContent(env: Env, options: { target?: SyncTarg
       const metadata = !pageToken ? await fetchChannelMetadata(item.channelId, env.YOUTUBE_API_KEY) : null
       const uploadsPlaylistId = metadata?.uploadsPlaylistId ?? item.uploadsPlaylistId
       const page = await fetchPlaylistVideosPage(uploadsPlaylistId, env.YOUTUBE_API_KEY, pageToken ?? undefined)
-      const accepted = page.videos.filter(video => !shortVideo(video.duration))
-      const rejectedIds = page.videos.filter(video => shortVideo(video.duration)).map(video => video.videoId)
+      const accepted = page.videos.filter(playableVideo)
+      const rejectedIds = page.videos.filter(video => !playableVideo(video)).map(video => video.videoId)
       if (!pageToken) await db.delete(schema.channelVideos).where(eq(schema.channelVideos.channelId, item.channelId))
       else if (rejectedIds.length) await db.delete(schema.channelVideos).where(and(eq(schema.channelVideos.channelId, item.channelId), inArray(schema.channelVideos.videoId, rejectedIds)))
       const existing = pageToken ? await db.select({ count: count() }).from(schema.channelVideos).where(eq(schema.channelVideos.channelId, item.channelId)).get() : null
@@ -79,8 +83,8 @@ export async function syncApprovedContent(env: Env, options: { target?: SyncTarg
     try {
       const metadata = !pageToken ? await fetchPlaylistMetadata(item.playlistId, env.YOUTUBE_API_KEY) : null
       const page = await fetchPlaylistVideosPage(item.playlistId, env.YOUTUBE_API_KEY, pageToken ?? undefined)
-      const accepted = page.videos.filter(video => !shortVideo(video.duration))
-      const rejectedIds = page.videos.filter(video => shortVideo(video.duration)).map(video => video.videoId)
+      const accepted = page.videos.filter(playableVideo)
+      const rejectedIds = page.videos.filter(video => !playableVideo(video)).map(video => video.videoId)
       if (!pageToken) await db.delete(schema.playlistVideos).where(eq(schema.playlistVideos.playlistId, item.playlistId))
       else if (rejectedIds.length) await db.delete(schema.playlistVideos).where(and(eq(schema.playlistVideos.playlistId, item.playlistId), inArray(schema.playlistVideos.videoId, rejectedIds)))
       const existing = pageToken ? await db.select({ count: count() }).from(schema.playlistVideos).where(eq(schema.playlistVideos.playlistId, item.playlistId)).get() : null
@@ -118,7 +122,7 @@ export async function syncApprovedContent(env: Env, options: { target?: SyncTarg
       await db.update(schema.allowedVideos).set({
         videoTitle: video.title, videoDescription: video.description, videoThumbnail: video.thumbnail,
         duration: video.duration, channelTitle: video.channelTitle, publishedAt: video.publishedAt,
-        lastFetchedAt: instant, isAvailable: !shortVideo(video.duration),
+        lastFetchedAt: instant, isAvailable: playableVideo(video),
       }).where(eq(schema.allowedVideos.id, item.id))
       result.synced++
     } catch (error) {

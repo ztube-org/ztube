@@ -31,35 +31,7 @@ export async function authorizeAndCreatePlayer(
   return create()
 }
 
-type YouTubeWindow = Window & {
-  YT?: { Player: new (elementId: string, options: unknown) => YouTubePlayer }
-  onYouTubeIframeAPIReady?: () => void
-}
-
-let iframeApiPromise: Promise<void> | undefined
-
-function loadIframeApi(browser: YouTubeWindow): Promise<void> {
-  if (browser.YT?.Player) return Promise.resolve()
-  if (iframeApiPromise) return iframeApiPromise
-  iframeApiPromise = new Promise((resolve, reject) => {
-    const priorReady = browser.onYouTubeIframeAPIReady
-    const timeout = setTimeout(() => reject(new Error('YouTube could not load. Restricted mode, parental controls, or the network may be blocking playback.')), 12_000)
-    browser.onYouTubeIframeAPIReady = () => {
-      priorReady?.()
-      clearTimeout(timeout)
-      resolve()
-    }
-    const script = browser.document.createElement('script')
-    script.src = 'https://www.youtube.com/iframe_api'
-    script.onerror = () => {
-      clearTimeout(timeout)
-      reject(new Error('YouTube could not load. Restricted mode, parental controls, or the network may be blocking playback.'))
-    }
-    browser.document.head.appendChild(script)
-  })
-  iframeApiPromise.catch(() => { iframeApiPromise = undefined })
-  return iframeApiPromise
-}
+const NOCOOKIE_ORIGIN = 'https://www.youtube-nocookie.com'
 
 function playbackErrorMessage(code: number): string {
   if (code === 101 || code === 150) return 'This video cannot play here. Restricted mode, parental controls, or the network may be blocking embedded playback.'
@@ -69,26 +41,108 @@ function playbackErrorMessage(code: number): string {
 }
 
 export async function createYouTubePlayer(elementId: string, options: YouTubePlayerOptions): Promise<YouTubePlayer> {
-  const browser = window as YouTubeWindow
-  await loadIframeApi(browser)
   return new Promise((resolve, reject) => {
-    const player = new browser.YT!.Player(elementId, {
-      videoId: options.videoId,
-      playerVars: { rel: 0, modestbranding: 1, autoplay: 1, playsinline: 1 },
-      events: {
-        onReady: (event: { target: YouTubePlayer }) => {
-          options.onReady(event.target)
-          resolve(event.target)
-        },
-        onStateChange: (event: { data: number }) => options.onStateChange?.(youtubeState(event.data)),
-        onError: (event: { data: number }) => {
-          const error = new Error(playbackErrorMessage(event.data))
-          player.destroy?.()
-          options.onError?.(error)
-          reject(error)
-        },
-      },
-    })
+    const container = window.document.getElementById(elementId)
+    if (!container) {
+      reject(new Error('YouTube player container is missing.'))
+      return
+    }
+
+    const iframe = window.document.createElement('iframe')
+    const embedUrl = new URL(`${NOCOOKIE_ORIGIN}/embed/${encodeURIComponent(options.videoId)}`)
+    embedUrl.searchParams.set('enablejsapi', '1')
+    embedUrl.searchParams.set('origin', window.location.origin)
+    embedUrl.searchParams.set('rel', '0')
+    embedUrl.searchParams.set('modestbranding', '1')
+    embedUrl.searchParams.set('autoplay', '1')
+    embedUrl.searchParams.set('playsinline', '1')
+    iframe.src = embedUrl.toString()
+    iframe.title = 'YouTube video player'
+    iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share'
+    iframe.allowFullscreen = true
+    iframe.style.width = '100%'
+    iframe.style.height = '100%'
+    iframe.style.border = '0'
+
+    let currentTime = 0
+    let lastState: number | undefined
+    let ready = false
+    let destroyed = false
+
+    const post = (message: object) => iframe.contentWindow?.postMessage(JSON.stringify(message), NOCOOKIE_ORIGIN)
+    const command = (func: string, args: unknown[] = []) => post({ event: 'command', func, args, id: elementId })
+    const player: YouTubePlayer = {
+      setPlaybackRate: rate => command('setPlaybackRate', [rate]),
+      getCurrentTime: () => currentTime,
+      seekTo: (seconds, allowSeekAhead = true) => command('seekTo', [seconds, allowSeekAhead]),
+      pauseVideo: () => command('pauseVideo'),
+      destroy: () => cleanup(true),
+    }
+
+    const finishReady = () => {
+      if (ready || destroyed) return
+      ready = true
+      clearTimeout(timeout)
+      clearInterval(handshake)
+      options.onReady(player)
+      resolve(player)
+    }
+    const reportState = (code: number) => {
+      if (code === lastState) return
+      lastState = code
+      options.onStateChange?.(youtubeState(code))
+    }
+    const fail = (code: number) => {
+      if (destroyed) return
+      const error = new Error(playbackErrorMessage(code))
+      cleanup(true)
+      options.onError?.(error)
+      reject(error)
+    }
+    const receive = (event: MessageEvent) => {
+      if (event.origin !== NOCOOKIE_ORIGIN || event.source !== iframe.contentWindow) return
+      let message: { event?: string; info?: unknown }
+      try {
+        message = typeof event.data === 'string' ? JSON.parse(event.data) : event.data
+      } catch {
+        return
+      }
+      if (!message || typeof message !== 'object') return
+      if (message.event === 'onError' && typeof message.info === 'number') {
+        fail(message.info)
+        return
+      }
+      if (message.event === 'onStateChange' && typeof message.info === 'number') reportState(message.info)
+      if (message.info && typeof message.info === 'object') {
+        const info = message.info as { currentTime?: unknown; playerState?: unknown }
+        if (typeof info.currentTime === 'number') currentTime = info.currentTime
+        if (typeof info.playerState === 'number') reportState(info.playerState)
+      }
+      if (message.event === 'onReady' || message.event === 'initialDelivery' || message.event === 'infoDelivery') finishReady()
+    }
+    const listen = () => {
+      post({ event: 'listening', id: elementId })
+      command('addEventListener', ['onReady'])
+      command('addEventListener', ['onStateChange'])
+      command('addEventListener', ['onError'])
+    }
+    const cleanup = (removeFrame: boolean) => {
+      if (destroyed) return
+      destroyed = true
+      clearTimeout(timeout)
+      clearInterval(handshake)
+      window.removeEventListener('message', receive)
+      if (removeFrame) iframe.remove()
+    }
+    const timeout = setTimeout(() => {
+      if (destroyed) return
+      cleanup(true)
+      reject(new Error('YouTube could not load. Restricted mode, parental controls, or the network may be blocking playback.'))
+    }, 12_000)
+    const handshake = setInterval(listen, 500)
+    iframe.addEventListener('load', listen)
+    window.addEventListener('message', receive)
+    container.replaceChildren(iframe)
   })
 }
 

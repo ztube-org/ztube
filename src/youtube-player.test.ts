@@ -1,6 +1,59 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { authorizeAndCreatePlayer, createPlaybackReporter, createYouTubePlayer, type YouTubePlayer, youtubeState } from './youtube-player.ts'
+
+function installNoCookiePlayerWindow() {
+  const priorWindow = globalThis.window
+  const posts: Array<{ message: any; targetOrigin: string }> = []
+  let load: (() => void) | undefined
+  let receive: ((event: any) => void) | undefined
+  let removed = false
+  const contentWindow = {
+    postMessage(raw: string, targetOrigin: string) {
+      posts.push({ message: JSON.parse(raw), targetOrigin })
+    },
+  }
+  const iframe = {
+    src: '',
+    title: '',
+    allow: '',
+    allowFullscreen: false,
+    style: {} as Record<string, string>,
+    contentWindow,
+    addEventListener(name: string, listener: () => void) { if (name === 'load') load = listener },
+    remove() { removed = true },
+  }
+  const container = {
+    replaceChildren(child: unknown) { assert.equal(child, iframe) },
+  }
+  globalThis.window = {
+    location: { origin: 'https://ztube.example' },
+    document: {
+      getElementById(id: string) { return id === 'youtube-player' ? container : null },
+      createElement(name: string) { assert.equal(name, 'iframe'); return iframe },
+    },
+    addEventListener(name: string, listener: (event: any) => void) { if (name === 'message') receive = listener },
+    removeEventListener(name: string, listener: (event: any) => void) {
+      if (name === 'message' && receive === listener) receive = undefined
+    },
+  } as any
+  return {
+    iframe,
+    posts,
+    load: () => load?.(),
+    message(event: string, info?: unknown) {
+      receive?.({ origin: 'https://www.youtube-nocookie.com', source: contentWindow, data: JSON.stringify({ event, info }) })
+    },
+    wasRemoved: () => removed,
+    restore: () => { globalThis.window = priorWindow },
+  }
+}
+
+test('player implementation never requests the blocked youtube.com site', async () => {
+  const source = await readFile(new URL('./youtube-player.ts', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /https?:\/\/[^'"`]*youtube\.com/i)
+})
 
 test('constructs the thin player adapter only after Playback Authorization succeeds', async () => {
   const calls: string[] = []
@@ -29,6 +82,33 @@ test('maps YouTube playing, buffering, ended, and paused states without using sp
   assert.equal(youtubeState(3), 'buffering')
   assert.equal(youtubeState(0), 'ended')
   assert.equal(youtubeState(2), 'paused')
+})
+
+test('uses only the privacy-enhanced iframe and preserves playback controls', async () => {
+  const browser = installNoCookiePlayerWindow()
+  const states: string[] = []
+  try {
+    const pending = createYouTubePlayer('youtube-player', { videoId: 'approved', onReady() {}, onStateChange: state => states.push(state) })
+    browser.load()
+    browser.message('initialDelivery', { currentTime: 42.5, playerState: 1 })
+    const player = await pending
+
+    const embedUrl = new URL(browser.iframe.src)
+    assert.equal(embedUrl.origin, 'https://www.youtube-nocookie.com')
+    assert.equal(embedUrl.pathname, '/embed/approved')
+    assert.equal(embedUrl.searchParams.get('origin'), 'https://ztube.example')
+    assert.equal(player.getCurrentTime?.(), 42.5)
+    assert.deepEqual(states, ['playing'])
+
+    player.pauseVideo?.()
+    player.seekTo?.(30, true)
+    assert.ok(browser.posts.some(post => post.message.func === 'pauseVideo'))
+    assert.ok(browser.posts.some(post => post.message.func === 'seekTo' && post.message.args[0] === 30))
+    assert.ok(browser.posts.every(post => post.targetOrigin === 'https://www.youtube-nocookie.com'))
+    player.destroy?.()
+  } finally {
+    browser.restore()
+  }
 })
 
 test('pauses hidden playback and stops when the server ends authorization', async () => {
@@ -87,25 +167,13 @@ test('pauses when heartbeats cannot renew the 60-second lease', async () => {
 })
 
 test('rejects with an actionable message when YouTube blocks embedded playback', async () => {
-  let events: { onReady(event: { target: YouTubePlayer }): void; onError(event: { data: number }): void } | undefined
-  const priorWindow = globalThis.window
-  globalThis.window = {
-    YT: {
-      Player: class {
-        constructor(_elementId: string, options: any) {
-          events = options.events
-          queueMicrotask(() => events?.onError({ data: 150 }))
-        }
-      },
-    },
-  } as any
-
+  const browser = installNoCookiePlayerWindow()
   try {
-    await assert.rejects(
-      () => createYouTubePlayer('youtube-player', { videoId: 'blocked', onReady() {} }),
-      /restricted mode, parental controls, or the network/i,
-    )
+    const pending = createYouTubePlayer('youtube-player', { videoId: 'blocked', onReady() {} })
+    browser.message('onError', 150)
+    await assert.rejects(pending, /restricted mode, parental controls, or the network/i)
+    assert.equal(browser.wasRemoved(), true)
   } finally {
-    globalThis.window = priorWindow
+    browser.restore()
   }
 })
