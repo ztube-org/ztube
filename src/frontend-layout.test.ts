@@ -15,6 +15,14 @@ test('Approved Content cards use larger responsive artwork', async () => {
   assert.match(styles, /@media\s*\(min-width:\s*768px\)[\s\S]*\.zt-source-artwork\s*\{[^}]*inline-size:\s*6rem;[^}]*block-size:\s*6rem;/s)
 })
 
+test('the home page confirms before removing a Favorite', async () => {
+  const home = await read('app/pages/browse/index.vue')
+  const confirmation = home.indexOf('if (!confirm(`Remove “${video.videoTitle}” from Favorites?`)) return')
+  const deletion = home.indexOf("method: 'DELETE'")
+  assert.ok(confirmation >= 0)
+  assert.ok(deletion > confirmation)
+})
+
 test('source pages anchor their Favorite control to the video card', async () => {
   const [source, styles] = await Promise.all([
     read('app/components/SourceVideoPage.vue'),

@@ -45,6 +45,7 @@ function progressPercent(video: any) {
 async function toggleFavorite(video: any) {
   const favorites: string[] = data.value.favoriteVideoIds ?? []
   if (favorites.includes(video.videoId)) {
+    if (!confirm(`Remove “${video.videoTitle}” from Favorites?`)) return
     await apiFetch(`/api/child/favorites/${encodeURIComponent(video.videoId)}`, { method: 'DELETE' })
     data.value.favoriteVideoIds = favorites.filter(id => id !== video.videoId)
     data.value.favorites = data.value.favorites.filter((item: any) => item.videoId !== video.videoId)
