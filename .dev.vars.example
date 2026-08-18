@@ -2,3 +2,6 @@ AUTH_MODE=local
 LOCAL_DEV_USER_EMAIL=child@example.com
 ADMIN_EMAILS=first-parent@example.com,second-parent@example.com
 YOUTUBE_API_KEY=your-youtube-api-key
+AUTH_MODE=local
+LOCAL_DEV_USER_EMAIL=child@example.com
+ADMIN_EMAILS=parent@example.com
