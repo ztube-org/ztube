@@ -2,6 +2,7 @@
 import { watch } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 import { useApi, useAuth } from '../src/api'
+import ThemeToggle from './components/ThemeToggle.vue'
 
 const route = useRoute()
 const { user, logout } = useAuth()
@@ -11,24 +12,26 @@ watch(() => route.fullPath, () => { void refreshRecommendations() })
 
 <template>
   <RouterView v-if="route.meta.fullscreen" :key="route.fullPath" />
-  <div v-else class="min-h-screen bg-[#f9f9f9]">
-    <header class="sticky top-0 z-40 border-b border-gray-200 bg-white/95 backdrop-blur">
+  <div v-else class="zt-app-shell min-h-screen">
+    <header class="zt-app-header sticky top-0 z-40 border-b backdrop-blur">
       <div class="mx-auto flex h-12 max-w-[1600px] items-center justify-between gap-3 px-4 sm:px-5 lg:px-6">
-        <RouterLink to="/" class="flex min-h-11 items-center gap-2 rounded-lg text-lg font-bold tracking-tight text-[#0f0f0f] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#065fd4]">
-          <span class="flex h-7 w-9 items-center justify-center rounded-md bg-[#065fd4] text-white">
+        <RouterLink to="/" class="zt-brand flex min-h-11 items-center gap-2 rounded-lg text-lg font-bold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-2">
+          <span class="zt-brand-mark flex h-7 w-9 items-center justify-center rounded-md text-white">
             <UIcon name="i-heroicons-play-solid" class="h-4 w-4" />
           </span>
           ZTube
         </RouterLink>
         <div v-if="user" class="flex min-w-0 items-center gap-2 sm:gap-4">
-          <RouterLink v-if="recommendations?.count" to="/browse" class="flex min-h-11 items-center gap-1 rounded-full bg-blue-50 px-3 text-sm font-semibold text-[#065fd4]">
+          <RouterLink v-if="recommendations?.count" to="/browse" class="zt-notification flex min-h-11 items-center gap-1 rounded-full px-3 text-sm font-semibold">
             <UIcon name="i-heroicons-megaphone" class="h-5 w-5" />
-            New for You · {{ recommendations.count }}
+            <span class="hidden sm:inline">New for You ·</span> {{ recommendations.count }}
           </RouterLink>
           <UAvatar :src="user.avatarUrl" :alt="user.displayName || user.email" size="sm" />
           <span class="hidden max-w-64 truncate text-sm text-gray-600 sm:block">{{ user.displayName || user.email }}</span>
-          <UButton color="neutral" variant="ghost" icon="i-heroicons-arrow-right-start-on-rectangle" @click="logout">Logout</UButton>
+          <ThemeToggle />
+          <UButton color="neutral" variant="ghost" icon="i-heroicons-arrow-right-start-on-rectangle" aria-label="Logout" @click="logout"><span class="hidden sm:inline">Logout</span></UButton>
         </div>
+        <ThemeToggle v-else />
       </div>
     </header>
     <main class="mx-auto w-full max-w-[1600px] px-4 py-4 sm:px-5 lg:px-6 lg:py-5"><RouterView /></main>

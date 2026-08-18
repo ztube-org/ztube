@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import ThemeToggle from '../components/ThemeToggle.vue'
 import { apiFetch, useApi, useAuth } from '../../src/api'
 import { authorizeAndCreatePlayer, createPlaybackReporter, createYouTubePlayer, type PlaybackState, type YouTubePlayer } from '../../src/youtube-player'
 
@@ -154,16 +155,17 @@ async function toggleFavorite() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#f9f9f9] text-[#0f0f0f]">
-    <header class="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-gray-200 bg-white/95 px-3 backdrop-blur sm:px-5">
-      <NuxtLink :to="backTarget" class="flex min-h-11 items-center gap-2 rounded-full px-3 text-sm font-medium hover:bg-gray-100">
+  <div class="zt-app-shell min-h-screen">
+    <header class="zt-app-header sticky top-0 z-40 flex h-14 items-center justify-between border-b px-3 backdrop-blur sm:px-5">
+      <NuxtLink :to="backTarget" class="zt-icon-link flex min-h-11 items-center gap-2 rounded-full px-3 text-sm font-medium">
         <UIcon name="i-heroicons-arrow-left" class="h-5 w-5" />
         Back
       </NuxtLink>
-      <span class="flex items-center gap-2 text-lg font-bold"><span class="flex h-7 w-9 items-center justify-center rounded-md bg-[#065fd4] text-white"><UIcon name="i-heroicons-play-solid" class="h-4 w-4" /></span>ZTube</span>
-      <UButton color="neutral" variant="ghost" size="sm" @click="logout">
-        Logout
-      </UButton>
+      <span class="zt-brand flex items-center gap-2 text-lg font-bold"><span class="zt-brand-mark flex h-7 w-9 items-center justify-center rounded-md text-white"><UIcon name="i-heroicons-play-solid" class="h-4 w-4" /></span>ZTube</span>
+      <div class="flex items-center gap-1">
+        <ThemeToggle />
+        <UButton color="neutral" variant="ghost" size="sm" @click="logout">Logout</UButton>
+      </div>
     </header>
 
     <div class="zt-watch-shell">
@@ -178,7 +180,7 @@ async function toggleFavorite() {
             </div>
           </div>
 
-          <div class="border-b border-gray-200 bg-white p-3 sm:mt-3 sm:rounded-xl sm:border sm:p-4">
+          <div class="zt-surface border-b p-3 sm:mt-3 sm:rounded-xl sm:border sm:p-4">
             <div class="flex items-center justify-between gap-4">
               <div class="min-w-0">
                 <p v-if="usageBucket === 'exempt'" class="text-sm font-medium text-[#065fd4]">Safety Cap only</p>
@@ -191,7 +193,7 @@ async function toggleFavorite() {
             </div>
           </div>
 
-          <section v-if="videoTitle || videoDescription" class="border-b border-gray-200 bg-white p-3 sm:mt-3 sm:rounded-xl sm:border sm:p-4" aria-label="Video details">
+          <section v-if="videoTitle || videoDescription" class="zt-surface border-b p-3 sm:mt-3 sm:rounded-xl sm:border sm:p-4" aria-label="Video details">
             <h1 class="text-lg font-semibold leading-6">{{ videoTitle }}</h1>
             <p v-if="channelTitle" class="mt-1 text-sm text-[#606060]">{{ channelTitle }}</p>
             <h2 v-if="videoDescription" id="video-description-heading" class="mt-4 text-sm font-semibold">Description</h2>

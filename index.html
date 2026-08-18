@@ -1,10 +1,18 @@
 <!doctype html>
-<html lang="en" class="light">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="color-scheme" content="light" />
-    <meta name="theme-color" content="#065fd4" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f3f0e8" />
+    <script>
+      (() => {
+        let theme
+        try { theme = localStorage.getItem('ztube-theme') } catch {}
+        if (theme !== 'light' && theme !== 'dark') theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        document.documentElement.classList.add(theme)
+      })()
+    </script>
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="ZTube" />
