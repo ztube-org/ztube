@@ -1,7 +1,7 @@
 # ZTube
 
 A self-hosted video library for families. Admins choose what each Child can watch
-from YouTube, WebDAV or Jellyfin, and set daily viewing budgets and required breaks.
+from YouTube or Jellyfin, and set daily viewing budgets and required breaks.
 Built with Vue, Hono, Cloudflare Workers and D1. Licensed under [MIT](LICENSE).
 
 - Approve channels, playlists or individual videos separately for each Child.
@@ -19,7 +19,7 @@ or DRM: direct media links may work outside its controls. Read the
 ## Self-host on Cloudflare
 
 This is the supported deployment path; a separate application server or Docker
-host is not required. Jellyfin/WebDAV servers, if used, are hosted separately.
+host is not required. Jellyfin servers, if used, are hosted separately.
 
 ### 1. Prepare your accounts and tools
 
@@ -33,7 +33,7 @@ You need:
   Worker makes these requests. See [Google's setup guide][youtube].
 
 Check Cloudflare/Google quotas and current pricing for your usage. YouTube is
-optional if you use only WebDAV or Jellyfin.
+optional if you use only Jellyfin.
 
 ```sh
 git clone https://github.com/ztube-org/ztube.git
@@ -51,11 +51,14 @@ the deploy command includes UI verification. Use a different database name if
 
 ### 2. Configure sign-in before deploying
 
+Keep your ZTube endpoint private: use **Cloudflare Access** to allow only your
+household's email addresses. This protects the app and its API from public access.
+
 In **Cloudflare Zero Trust → Access → Applications**, add a **Self-hosted**
 application for your chosen hostname, for example `videos.example.com`.
 
 1. Protect the **entire hostname**, not just a path.
-2. Add an **Allow** policy listing every permitted Admin and Child email.
+2. Add an **Allow** policy listing only your family's Admin and Child emails.
 3. Choose an identity provider; **One-time PIN** supports email sign-in.
 4. Copy the application's **Application Audience (AUD) tag** and your team's
    URL, for example `https://your-team.cloudflareaccess.com`.
@@ -107,7 +110,7 @@ For example, `ADMIN_EMAILS` can be `parent1@example.com,parent2@example.com`.
 Email matching is case-insensitive. Secret updates create a deployed Worker
 version; you do not need to paste secrets into source files or rebuild the UI.
 
-For **WebDAV or Jellyfin**, also generate a random encryption key:
+For **Jellyfin**, also generate a random encryption key:
 
 ```sh
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
@@ -115,7 +118,7 @@ npx wrangler secret put PROVIDER_ENCRYPTION_KEY
 ```
 
 Paste the generated value at the prompt and save it in a password manager.
-It encrypts Provider credentials in D1; **keep it with your backups**. Replacing
+It encrypts Jellyfin credentials in D1; **keep it with your backups**. Replacing
 it makes existing connections unreadable. YouTube-only instances do not need it.
 
 ### 5. Sign in and add content
@@ -126,8 +129,8 @@ it makes existing connections unreadable. YouTube-only instances do not need it.
    including an Admin, automatically receives its own Child profile.
 3. Sign in once with each Child email so their profiles appear in the dashboard.
 4. Set each Child's time zone, Time Pools, Viewing Window and Required Break.
-5. Add approved YouTube URLs, or connect a [WebDAV Provider](docs/openlist.md) or
-   [Jellyfin library](docs/jellyfin.md), then share the Playlists with that Child.
+5. Add approved YouTube URLs, or connect a [Jellyfin library](docs/jellyfin.md),
+   then share the Playlists with that Child.
 6. Play an approved video as the Child. Check that Watch Time increases while
    playing, stops while paused, and Admin Viewing Pause stops playback.
 
@@ -139,6 +142,26 @@ Episode Unlocks do not.
 
 For iPad setup, backups, upgrades and troubleshooting, continue with the
 [self-hosting operations guide](docs/self-hosting.md).
+
+### iPad tip: block direct YouTube access
+
+On your Child's iPad, use **Screen Time** to block `youtube.com` while allowing
+your ZTube hostname. ZTube embeds YouTube through **`youtube-nocookie.com`**, so
+the player uses a different domain from the main YouTube website.
+
+1. Set a Screen Time passcode the Child does not know.
+2. Open **Content & Privacy Restrictions → Web Content → Limit Adult Websites**
+   and add `youtube.com`, `www.youtube.com`, `m.youtube.com` and `youtu.be` to
+   **Never Allow**. Menu names vary by iPadOS version.
+3. Keep your ZTube hostname and the player/media hosts `youtube-nocookie.com`,
+   `googlevideo.com`, `ytimg.com` and `gstatic.com` accessible.
+4. Remove the YouTube app and restrict its reinstallation if needed; website
+   restrictions alone do not block the app.
+
+Test both that ZTube still plays videos and that direct YouTube access is blocked.
+This helps close the direct website/app routes around ZTube; it is not a guarantee
+against every bypass. See the [iPad setup guide](docs/self-hosting.md#set-up-an-ipad)
+for more details.
 
 ## Run locally
 
@@ -155,7 +178,7 @@ npm run dev
 Open `http://localhost:5173`. The example signs in as a local Admin. Change
 `LOCAL_DEV_USER_EMAIL` in `.dev.vars` to an email outside `ADMIN_EMAILS` to test a
 Child account, and restart the dev server. Add a YouTube API key to use YouTube,
-and a separate local encryption key for Provider connections. These services
+and a separate local encryption key for Jellyfin connections. These services
 still require network access; test fixtures do not.
 
 Local authentication is restricted to loopback hostnames. Never deploy
@@ -175,7 +198,6 @@ Screen mode.
 - [Contributing and project structure](CONTRIBUTING.md)
 - [Security, privacy and reporting vulnerabilities](SECURITY.md)
 - [Self-hosting operations](docs/self-hosting.md)
-- [WebDAV / OpenList setup](docs/openlist.md)
 - [Jellyfin setup and supported formats](docs/jellyfin.md)
 - [Domain glossary](CONTEXT.md) and [architecture decisions](docs/adr/)
 - [Issues](https://github.com/ztube-org/ztube/issues)
