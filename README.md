@@ -163,7 +163,11 @@ Episode Unlocks do not.
 For iPad setup, backups, upgrades and troubleshooting, continue with the
 [self-hosting operations guide](docs/self-hosting.md).
 
-### iPad tip: block direct YouTube access
+### iPad tips: add a Home Screen icon and block direct YouTube access
+
+Open ZTube in **Safari**, sign in as the Child, then tap **Share → Add to Home
+Screen**. Keep **Open as Web App** enabled if offered. Children can then tap the
+ZTube icon on their Home Screen to open it like an app.
 
 On your Child's iPad, use **Screen Time** to block `youtube.com` while allowing
 your ZTube hostname. ZTube embeds YouTube through **`youtube-nocookie.com`**, so
