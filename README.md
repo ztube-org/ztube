@@ -4,6 +4,10 @@ A self-hosted video library for families. Admins choose what each Child can watc
 from YouTube or Jellyfin, and set daily viewing budgets and required breaks.
 Built with Vue, Hono, Cloudflare Workers and D1. Licensed under [MIT](LICENSE).
 
+![A Child's library with approved videos, Continue Watching and daily time remaining](docs/screenshots/child-library.png)
+
+*Real interface, fictional demo content.*
+
 - Approve channels, playlists or individual videos separately for each Child.
 - Organize viewing budgets into Time Pools, with weekday/weekend allowances.
 - Set Viewing Windows, Required Breaks, Viewing Pause and extra minutes for today.
@@ -15,6 +19,22 @@ Built with Vue, Hono, Cloudflare Workers and D1. Licensed under [MIT](LICENSE).
 **ZTube controls playback inside its own player.** It is not a device-level filter
 or DRM: direct media links may work outside its controls. Read the
 [security boundaries](SECURITY.md) before sharing an instance with Children.
+
+## A look inside
+
+**Choose the next episode.** Browse Jellyfin series by season, resume an unlocked
+episode, or use an Unlock Credit to try a new one.
+
+![Jellyfin episode selection with a season picker, resume progress and unlock status](docs/screenshots/jellyfin-episodes.png)
+
+**Set a routine for each Child.** Give different kinds of content their own Time
+Pools, add extra minutes for today, and configure viewing hours and breaks.
+
+![Parent controls with separate General videos, Cartoons and Learning budgets](docs/screenshots/parent-controls.png)
+
+These are screenshots of the real interface with fictional accounts, sample
+content and original illustrative covers. No real family or server data is shown.
+See [how to regenerate them](docs/screenshots/README.md).
 
 ## Self-host on Cloudflare
 
