@@ -1,0 +1,7 @@
+# Local authentication works only on localhost/loopback. Never deploy it.
+AUTH_MODE=local
+LOCAL_DEV_USER_EMAIL=parent@example.com
+ADMIN_EMAILS=parent@example.com
+YOUTUBE_API_KEY=your-youtube-api-key
+# Optional for WebDAV/Jellyfin: generate a separate local key (see README).
+PROVIDER_ENCRYPTION_KEY=
