@@ -16,6 +16,7 @@ export const router = createRouter({
     { path: '/admin/jellyfin', component: () => import('../app/pages/admin/jellyfin.vue'), meta: { role: 'admin' } },
     { path: '/admin/library', component: () => import('../app/pages/admin/library.vue'), meta: { role: 'admin' } },
     { path: '/admin/child/:id/manage', component: ManageChild, meta: { role: 'admin' } },
+    { path: '/admin/child/:id/preview', component: () => import('../app/pages/admin/child/[id]/preview.vue'), meta: { role: 'admin' } },
     { path: '/browse', component: Browse },
     { path: '/cartoon-pool', component: () => import('../app/pages/cartoon-pool.vue') },
     { path: '/browse/channel/:id', component: Channel },

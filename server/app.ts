@@ -413,6 +413,25 @@ export function createApp(dependencies: AppDependencies = {}) {
     return c.json({ success: true })
   })
 
+  // Admin preview uses the same presentation queries as the Child, but never assumes their identity.
+  app.get('/api/admin/children/:id/preview', async c => {
+    const { childId } = await adminChild(c)
+    return browseForChild(c, childId, now(), true)
+  })
+  app.get('/api/admin/children/:id/preview/search', async c => {
+    const { db, childId } = await adminChild(c)
+    const query = v.parse(v.pipe(v.string(), v.trim(), v.maxLength(200)), c.req.query('q') ?? '')
+    const tag = v.parse(v.pipe(v.string(), v.trim(), v.maxLength(100)), c.req.query('tag') ?? '')
+    const page = v.parse(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(1000)), Number(c.req.query('page') ?? '0'))
+    const result = await searchApprovedVideos(db, childId, query, tag, page)
+    return c.json({ ...result, favoriteVideoIds: await favoriteVideoIdsFor(db, childId, result.videos), ...await childViewingStatus(db, childId, now(), true) })
+  })
+  app.get('/api/admin/children/:id/preview/:kind/:sourceId', async c => {
+    const { childId } = await adminChild(c)
+    const kind = v.parse(v.picklist(['channel', 'playlist']), c.req.param('kind'))
+    return channelOrPlaylist(c, kind, now(), childId, true, c.req.param('sourceId'))
+  })
+
   app.get('/api/child/recommendations/count', async c => {
     const user = c.get('user')
     const db = database(c.env.DB)
@@ -431,39 +450,7 @@ export function createApp(dependencies: AppDependencies = {}) {
     return c.json({ ...result, favoriteVideoIds, ...viewing })
   })
 
-  app.get('/api/child/browse', async c => {
-    const user = c.get('user')
-    const db = database(c.env.DB)
-    const [channels, playlists, videos, settings, favoriteRows, progressRows, recommendationRows] = await Promise.all([
-      db.query.allowedChannels.findMany({ where: eq(schema.allowedChannels.childId, user.id!) }),
-      db.query.allowedPlaylists.findMany({ where: eq(schema.allowedPlaylists.childId, user.id!) }),
-      db.query.allowedVideos.findMany({ where: eq(schema.allowedVideos.childId, user.id!) }),
-      ensureTimeSettings(db, user.id!),
-      db.query.favoriteVideos.findMany({ where: eq(schema.favoriteVideos.childId, user.id!) }),
-      db.query.playbackProgress.findMany({ where: eq(schema.playbackProgress.childId, user.id!), orderBy: (table, { desc }) => [desc(table.updatedAt)], limit: 10 }),
-      db.query.videoRecommendations.findMany({ where: and(eq(schema.videoRecommendations.childId, user.id!), isNull(schema.videoRecommendations.seenAt)), orderBy: (table, { desc }) => [desc(table.recommendedAt)], limit: 10 }),
-    ])
-    const filteredVideos = excludeUnsupportedVideos(videos)
-    if (filteredVideos.rejectedVideoIds.length) {
-      await db.delete(schema.allowedVideos).where(and(eq(schema.allowedVideos.childId, user.id), inArray(schema.allowedVideos.videoId, filteredVideos.rejectedVideoIds)))
-    }
-    const metadata = await resolveApprovedVideos(db, user.id, [...favoriteRows, ...progressRows, ...recommendationRows, ...filteredVideos.videos].map(row => row.videoId))
-    const available = (id: string) => { const video = metadata.get(id); return video?.supported ? video : null }
-    const favorites = favoriteRows.flatMap(row => available(row.videoId) ? [available(row.videoId)!] : [])
-    const continueWatching = progressRows.flatMap(row => available(row.videoId) ? [{ ...available(row.videoId)!, ...row }] : [])
-    const recommendations = recommendationRows.flatMap(row => available(row.videoId) ? [available(row.videoId)!] : [])
-    const day = viewingDayAt(now(), settings.timeZone, settings)
-    const instant = now()
-    const usage = await dailyUsage(db, user.id, day.localDate, instant)
-    return c.json({
-      seriesNavigation: await seriesNavigation(c.env.DB, user.id),
-      channels, playlists, videos: filteredVideos.videos.map(video => ({ ...video, usageBucket: metadata.get(video.videoId)?.usageBucket ?? video.contentRule, timePoolId: metadata.get(video.videoId)?.timePoolId, timePoolName: metadata.get(video.videoId)?.timePoolName, timePoolConflict: metadata.get(video.videoId)?.timePoolConflict, requiresClaim: metadata.get(video.videoId)?.requiresClaim })), recommendations, favorites, continueWatching,
-      recommendationCount: recommendations.length,
-      favoriteVideoIds: favorites.map(item => item.videoId),
-      watchTime: { ...watchTimeStatus(...effectiveLimits(day.allowanceMinutes, settings.safetyCapMinutes, usage), usage, settings.cartoonAllowanceMinutes), pools: await poolStatuses(db, user.id, instant) },
-      policy: playbackPolicyAt(instant, settings, usage),
-    })
-  })
+  app.get('/api/child/browse', c => browseForChild(c, c.get('user').id, now()))
 
   app.post('/api/child/favorites', async c => {
     const user = c.get('user')
@@ -488,6 +475,38 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.get('/api/child/channel/:id/videos', async c => channelOrPlaylist(c, 'channel', now()))
   app.get('/api/child/playlist/:id/videos', async c => channelOrPlaylist(c, 'playlist', now()))
   return app
+}
+
+async function browseForChild(c: ApiContext, childId: number, instant: Date, preview = false) {
+  const db = database(c.env.DB)
+  const [channels, playlists, videos, settings, favoriteRows, progressRows, recommendationRows] = await Promise.all([
+    db.query.allowedChannels.findMany({ where: eq(schema.allowedChannels.childId, childId) }),
+    db.query.allowedPlaylists.findMany({ where: eq(schema.allowedPlaylists.childId, childId) }),
+    db.query.allowedVideos.findMany({ where: eq(schema.allowedVideos.childId, childId) }),
+    ensureTimeSettings(db, childId),
+    db.query.favoriteVideos.findMany({ where: eq(schema.favoriteVideos.childId, childId) }),
+    db.query.playbackProgress.findMany({ where: eq(schema.playbackProgress.childId, childId), orderBy: (table, { desc }) => [desc(table.updatedAt)], limit: 10 }),
+    db.query.videoRecommendations.findMany({ where: and(eq(schema.videoRecommendations.childId, childId), isNull(schema.videoRecommendations.seenAt)), orderBy: (table, { desc }) => [desc(table.recommendedAt)], limit: 10 }),
+  ])
+  const filteredVideos = excludeUnsupportedVideos(videos)
+  if (!preview && filteredVideos.rejectedVideoIds.length) {
+    await db.delete(schema.allowedVideos).where(and(eq(schema.allowedVideos.childId, childId), inArray(schema.allowedVideos.videoId, filteredVideos.rejectedVideoIds)))
+  }
+  const metadata = await resolveApprovedVideos(db, childId, [...favoriteRows, ...progressRows, ...recommendationRows, ...filteredVideos.videos].map(row => row.videoId))
+  const available = (id: string) => { const video = metadata.get(id); return video?.supported ? video : null }
+  const favorites = favoriteRows.flatMap(row => available(row.videoId) ? [available(row.videoId)!] : [])
+  const continueWatching = progressRows.flatMap(row => available(row.videoId) ? [{ ...available(row.videoId)!, ...row }] : [])
+  const recommendations = recommendationRows.flatMap(row => available(row.videoId) ? [available(row.videoId)!] : [])
+  const day = viewingDayAt(instant, settings.timeZone, settings)
+  const usage = await dailyUsage(db, childId, day.localDate, preview ? undefined : instant)
+  return c.json({
+    seriesNavigation: await seriesNavigation(c.env.DB, childId),
+    channels, playlists, videos: filteredVideos.videos.map(video => ({ ...video, usageBucket: metadata.get(video.videoId)?.usageBucket ?? video.contentRule, timePoolId: metadata.get(video.videoId)?.timePoolId, timePoolName: metadata.get(video.videoId)?.timePoolName, timePoolConflict: metadata.get(video.videoId)?.timePoolConflict, requiresClaim: metadata.get(video.videoId)?.requiresClaim })), recommendations, favorites, continueWatching,
+    recommendationCount: recommendations.length,
+    favoriteVideoIds: favorites.map(item => item.videoId),
+    watchTime: { ...watchTimeStatus(...effectiveLimits(day.allowanceMinutes, settings.safetyCapMinutes, usage), usage, settings.cartoonAllowanceMinutes), pools: await poolStatuses(db, childId, instant) },
+    policy: playbackPolicyAt(instant, settings, usage),
+  })
 }
 
 async function adminChild(c: ApiContext) {
@@ -568,31 +587,30 @@ async function unlockedVideoIdsFor(binding: D1Database, childId: number, videos:
   return rows.results.map(row => row.videoId)
 }
 
-async function childViewingStatus(db: ReturnType<typeof drizzle<typeof schema>>, childId: number, instant: Date) {
+async function childViewingStatus(db: ReturnType<typeof drizzle<typeof schema>>, childId: number, instant: Date, preview = false) {
   const settings = await ensureTimeSettings(db, childId)
   const day = viewingDayAt(instant, settings.timeZone, settings)
-  const usage = await dailyUsage(db, childId, day.localDate, instant)
+  const usage = await dailyUsage(db, childId, day.localDate, preview ? undefined : instant)
   return {
     watchTime: { ...watchTimeStatus(...effectiveLimits(day.allowanceMinutes, settings.safetyCapMinutes, usage), usage, settings.cartoonAllowanceMinutes), pools: await poolStatuses(db, childId, instant) },
     policy: playbackPolicyAt(instant, settings, usage),
   }
 }
 
-async function channelOrPlaylist(c: ApiContext, kind: 'channel' | 'playlist', instant: Date) {
-  const user = c.get('user')
-  const id = numericId(c.req.param('id'))
+async function channelOrPlaylist(c: ApiContext, kind: 'channel' | 'playlist', instant: Date, childId = c.get('user').id, preview = false, sourceId = c.req.param('id')) {
+  const id = numericId(sourceId)
   const pageToken = v.parse(v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(500))), c.req.query('pageToken'))
   const page = v.parse(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(1000)), Number(c.req.query('page') ?? '0'))
   const query = v.parse(v.pipe(v.string(), v.trim(), v.maxLength(200)), c.req.query('q') ?? '')
-  const refresh = c.req.query('refresh') === 'true'
+  const refresh = !preview && c.req.query('refresh') === 'true'
   const db = database(c.env.DB)
 
   const source = kind === 'channel'
-    ? await db.query.allowedChannels.findFirst({ where: and(eq(schema.allowedChannels.id, id), eq(schema.allowedChannels.childId, user.id)) }).then(item => item && ({
+    ? await db.query.allowedChannels.findFirst({ where: and(eq(schema.allowedChannels.id, id), eq(schema.allowedChannels.childId, childId)) }).then(item => item && ({
         id: item.id, externalId: item.channelId, fetchPlaylistId: item.uploadsPlaylistId, title: item.channelTitle,
         thumbnail: item.channelThumbnail, isAvailable: item.isAvailable, contentRule: item.contentRule, tags: item.tags,
       }))
-    : await db.query.allowedPlaylists.findFirst({ where: and(eq(schema.allowedPlaylists.id, id), eq(schema.allowedPlaylists.childId, user.id)) }).then(item => item && ({
+    : await db.query.allowedPlaylists.findFirst({ where: and(eq(schema.allowedPlaylists.id, id), eq(schema.allowedPlaylists.childId, childId)) }).then(item => item && ({
         id: item.id, externalId: item.playlistId, fetchPlaylistId: item.playlistId, title: item.playlistTitle,
         thumbnail: item.playlistThumbnail, isAvailable: item.isAvailable, contentRule: item.contentRule, tags: item.tags,
       }))
@@ -606,19 +624,19 @@ async function channelOrPlaylist(c: ApiContext, kind: 'channel' | 'playlist', in
     title: source.title, thumbnail: source.thumbnail, isAvailable: source.isAvailable,
     contentRule: source.contentRule, tags: source.tags,
   }
-  if (source.externalId.startsWith('pl:') || (!refresh && !pageToken)) {
+  if (source.externalId.startsWith('pl:') || preview || (!refresh && !pageToken)) {
     const videos = (kind === 'channel'
       ? await db.query.channelVideos.findMany({ where: and(eq(schema.channelVideos.channelId, source.externalId), sql`instr(lower(${schema.channelVideos.videoTitle} || ' ' || coalesce(${schema.channelVideos.channelTitle}, '')), lower(${query})) > 0`, sql`(${schema.channelVideos.duration} IS NULL OR ${schema.channelVideos.duration} > 180)`), orderBy: (table, { asc }) => [asc(table.position), asc(table.videoId)], limit: 51, offset: page * 50 })
       : await db.query.playlistVideos.findMany({ where: and(eq(schema.playlistVideos.playlistId, source.externalId), sql`instr(lower(${schema.playlistVideos.videoTitle} || ' ' || coalesce(${schema.playlistVideos.channelTitle}, '')), lower(${query})) > 0`, sql`(${schema.playlistVideos.duration} IS NULL OR ${schema.playlistVideos.duration} > 180)`), orderBy: (table, { asc }) => [asc(table.position), asc(table.videoId)], limit: pageSize + 1, offset: page * pageSize })) as Array<typeof schema.channelVideos.$inferSelect | typeof schema.playlistVideos.$inferSelect>
     const nextPage = videos.length > pageSize ? page + 1 : null
     videos.splice(pageSize)
-    const favoriteVideoIds = await favoriteVideoIdsFor(db, user.id!, videos)
+    const favoriteVideoIds = await favoriteVideoIdsFor(db, childId, videos)
     const [presentedVideos, viewing] = await Promise.all([
-      videosWithResolvedRules(db, user.id!, videos),
-      childViewingStatus(db, user.id!, instant),
+      videosWithResolvedRules(db, childId, videos),
+      childViewingStatus(db, childId, instant, preview),
     ])
-    const progress = curated ? await db.query.playbackProgress.findMany({ where: eq(schema.playbackProgress.childId, user.id) }) : []
-    const unlockedVideoIds = await unlockedVideoIdsFor(c.env.DB, user.id!, presentedVideos)
+    const progress = curated ? await db.query.playbackProgress.findMany({ where: eq(schema.playbackProgress.childId, childId) }) : []
+    const unlockedVideoIds = await unlockedVideoIdsFor(c.env.DB, childId, presentedVideos)
     return c.json({ [kind]: presentedSource, videos: presentedVideos.map(video => ({ ...video, ...(curated ? { positionSeconds: progress.find(p => p.videoId === video.videoId)?.positionSeconds } : {}) })), favoriteVideoIds, unlockedVideoIds, nextPage, cached: true, ...viewing })
   }
   const result = await fetchPlaylistVideosPage(source.fetchPlaylistId, c.env.YOUTUBE_API_KEY, pageToken)
@@ -627,10 +645,10 @@ async function channelOrPlaylist(c: ApiContext, kind: 'channel' | 'playlist', in
     replace: kind === 'playlist' && !pageToken, rejectedVideoIds, positionOffset: page * 50,
     nextPageToken: result.nextPageToken, instant,
   })
-  const favoriteVideoIds = await favoriteVideoIdsFor(db, user.id!, videos)
+  const favoriteVideoIds = await favoriteVideoIdsFor(db, childId, videos)
   const [presentedVideos, viewing] = await Promise.all([
-    videosWithResolvedRules(db, user.id!, presentVideos(videos)),
-    childViewingStatus(db, user.id!, instant),
+    videosWithResolvedRules(db, childId, presentVideos(videos)),
+    childViewingStatus(db, childId, instant),
   ])
   return c.json({ [kind]: { ...presentedSource, isAvailable: true }, videos: presentedVideos, favoriteVideoIds, nextPageToken: result.nextPageToken, ...viewing })
 }

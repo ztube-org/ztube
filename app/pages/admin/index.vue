@@ -31,7 +31,10 @@ const { data: childrenData } = useApi<any>('/api/admin/children')
         </div>
 
         <template #footer>
-          <UButton :to="`/admin/child/${child.id}/manage`" block variant="soft" class="min-h-11">Manage child</UButton>
+          <div class="grid grid-cols-2 gap-2">
+            <UButton :to="`/admin/child/${child.id}/manage`" block variant="soft" class="min-h-11">Manage child</UButton>
+            <UButton :to="`/admin/child/${child.id}/preview`" block variant="outline" class="min-h-11">Preview viewer</UButton>
+          </div>
         </template>
       </UCard>
     </div>

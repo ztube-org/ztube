@@ -189,10 +189,11 @@ function formatPublishedDate(value: string | null): string {
       <NuxtLink to="/admin" class="flex min-h-11 min-w-11 items-center justify-center rounded-full text-gray-700 hover:bg-gray-100" aria-label="Back to accounts">
         <UIcon name="i-heroicons-arrow-left" class="h-5 w-5" />
       </NuxtLink>
-      <div>
+      <div class="min-w-0 flex-1">
         <p class="text-sm font-medium text-[#065fd4]">Child settings</p>
-        <h1 class="text-2xl font-bold tracking-tight">{{ data?.child?.displayName || data?.child?.email }}</h1>
+        <h1 class="truncate text-2xl font-bold tracking-tight">{{ data?.child?.displayName || data?.child?.email }}</h1>
       </div>
+      <UButton :to="`/admin/child/${childId}/preview`" variant="soft" class="min-h-11 shrink-0">Preview viewer</UButton>
     </div>
 
     <div class="zt-admin-tabs" role="tablist" aria-label="Child settings">
