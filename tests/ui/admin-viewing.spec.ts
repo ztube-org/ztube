@@ -48,7 +48,10 @@ test('Admin edits independent time pools, binds content and saves daily unlock c
     } else if (path.endsWith('/time-settings')) body = { settings, viewingDay: { localDate: '2026-09-17', isWeekend: false, allowanceMinutes: settings.weekdayAllowanceMinutes } }
     else if (path.endsWith('/watch-time')) body = { viewingDay: '2026-09-17', restricted: { usedMinutes: 18, remainingMinutes: 42 }, exempt: { usedMinutes: 25, remainingMinutes: 155 }, policy: { blocked: false, breakCycleRemainingSeconds: 1200 } }
     else if (path.endsWith('/usage')) body = { days: [] }
-    else if (path.endsWith('/viewing-events')) body = { events: [], nextCursor: null, timeZone: settings.timeZone }
+    else if (path.endsWith('/viewing-events')) body = { events: [
+      { kind: 'unlock', videoId: 'jf:episode-1', videoTitle: 'First episode', channelTitle: 'Adventure cartoons', unlockedAt: 1789671600 },
+      { kind: 'playback', sessionId: 'watch-1', videoId: 'jf:episode-1', videoTitle: 'First episode', channelTitle: 'Adventure cartoons', usageBucket: 'cartoon', timePoolId: 'pool:1:cartoon', timePoolName: 'Cartoons', startedAt: 1789671660, lastWatchedAt: 1789671675, watchedSeconds: 15, status: 'ended' },
+    ], nextCursor: null, timeZone: settings.timeZone }
     await route.fulfill({ json: body })
   })
   await page.goto('/admin/child/1/manage')
@@ -114,6 +117,10 @@ test('Admin edits independent time pools, binds content and saves daily unlock c
   await expect(page.getByRole('form', { name: 'General videos time pool' })).toBeHidden()
   await page.getByRole('tab', { name: 'Activity', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Daily Usage Summary' })).toBeVisible()
+  const activity = page.getByRole('listitem').filter({ hasText: 'Episode Unlock' })
+  await expect(activity).toContainText('First episode')
+  await expect(activity).toContainText('1 Unlock Credit · No Watch Time')
+  await expect(page.getByRole('listitem').filter({ hasText: 'Last watched' })).toContainText('0m 15s')
   await page.getByRole('tab', { name: 'Profile', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Child profile', exact: true })).toBeVisible()
   expect(errors).toEqual([])

@@ -188,7 +188,7 @@ test('Viewing Events retain metadata and count playing intervals exactly once, e
   clock.setTime(clock.getTime() + 15_000)
   await heartbeat(auth.sessionId, 4, 'ended')
   d1.sqlite.exec("DELETE FROM allowed_videos")
-  assert.deepEqual(await events(), [{ sessionId: auth.sessionId, videoId: 'approved', videoTitle: 'Approved', channelTitle: null, usageBucket: 'restricted', timePoolId: 'pool:10:restricted', timePoolName: 'General videos', startedAt: Date.parse('2026-08-17T12:00:05Z') / 1000, lastWatchedAt: Date.parse('2026-08-17T12:00:50Z') / 1000, watchedSeconds: 25, status: 'ended' }])
+  assert.deepEqual(await events(), [{ kind: 'playback', sessionId: auth.sessionId, videoId: 'approved', videoTitle: 'Approved', channelTitle: null, usageBucket: 'restricted', timePoolId: 'pool:10:restricted', timePoolName: 'General videos', startedAt: Date.parse('2026-08-17T12:00:05Z') / 1000, lastWatchedAt: Date.parse('2026-08-17T12:00:50Z') / 1000, watchedSeconds: 25, status: 'ended' }])
 })
 
 test('Viewing Events identify the charged custom Time Pool and retain its original name', async () => {

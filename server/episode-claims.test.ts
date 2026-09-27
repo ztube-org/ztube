@@ -67,6 +67,54 @@ test('browsing and opening an episode do not claim it; explicit confirmation is 
   assert.equal((await f.claim('ep2')).status, 200, 'siblings have independent claims')
 })
 
+test('Admin activity shows confirmed Episode Unlocks without charging Watch Time, even after daily claims are pruned', async () => {
+  const f = await fixture()
+  const path = '/api/admin/children/1/viewing-events'
+  assert.equal((await f.request(path)).status, 403)
+  assert.equal((await f.claim('ep1')).status, 200)
+  assert.equal((await f.claim('ep1')).status, 200, 'repeated confirmation is idempotent')
+  f.admin()
+  let response = await (await f.request(path)).json() as any
+  assert.deepEqual(response.events, [{ kind: 'unlock', videoId: 'ep1', videoTitle: 'Episode 1', channelTitle: 'Cartoons', unlockedAt: Date.parse('2026-09-17T19:00:00Z') / 1000 }])
+  assert.equal((f.d1.sqlite.prepare('SELECT COUNT(*) AS n FROM viewing_events').get() as any).n, 0)
+  f.time('2026-09-18T19:00:00Z')
+  await pruneEpisodeClaims(f.binding, new Date('2026-09-18T19:00:00Z'))
+  assert.equal(f.count(), 0)
+  response = await (await f.request(path)).json() as any
+  assert.equal(response.events[0].videoTitle, 'Episode 1')
+  f.d1.sqlite.exec("DELETE FROM allowed_playlists WHERE child_id = 1; DELETE FROM allowed_videos WHERE child_id = 1")
+  response = await (await f.request(path)).json() as any
+  assert.equal(response.events[0].videoTitle, 'ep1', 'removed Approved Content still has an identifiable event')
+  f.time('2026-10-18T19:00:01Z')
+  assert.deepEqual((await (await f.request(path)).json() as any).events, [])
+  assert.equal((f.d1.sqlite.prepare('SELECT COUNT(*) AS n FROM episode_unlocks WHERE child_id = 1').get() as any).n, 1, 'retention never deletes permanent unlocks')
+})
+
+test('Admin activity paginates tied playback and unlock events together without leaking another Child', async () => {
+  const f = await fixture()
+  const epoch = Date.parse('2026-09-17T19:00:00Z') / 1000
+  for (let index = 0; index < 52; index++) {
+    f.d1.sqlite.prepare('INSERT INTO episode_unlocks (child_id, video_id, unlocked_at) VALUES (1, ?, ?)').run(`episode-${index}`, epoch)
+  }
+  f.d1.sqlite.exec(`
+    INSERT INTO episode_unlocks (child_id, video_id, unlocked_at) VALUES (2, 'other-episode', ${epoch});
+    INSERT INTO playback_sessions (id, child_id, viewing_day, last_state, last_acknowledged_at, lease_expires_at, usage_bucket, ended_at) VALUES ('watched', 1, '2026-09-17', 'ended', ${epoch}, ${epoch}, 'cartoon', ${epoch});
+    INSERT INTO viewing_events (session_id, child_id, video_id, video_title, usage_bucket, authorized_at, started_at, last_watched_at, watched_seconds) VALUES ('watched', 1, 'episode-0', 'Episode 0', 'cartoon', ${epoch}, ${epoch}, ${epoch}, 1);
+  `)
+  f.admin()
+  const path = '/api/admin/children/1/viewing-events'
+  const first = await (await f.request(path)).json() as any
+  assert.equal(first.events.length, 50)
+  const second = await (await f.request(`${path}?cursor=${encodeURIComponent(first.nextCursor)}`)).json() as any
+  assert.equal(second.events.length, 3)
+  assert.equal(second.nextCursor, null)
+  assert.equal(second.events.some((event: any) => event.kind === 'playback'), true)
+  const all = [...first.events, ...second.events]
+  assert.equal(new Set(all.map((event: any) => event.kind === 'unlock' ? `u:${event.videoId}` : `p:${event.sessionId}`)).size, 53)
+  assert.equal(all.some((event: any) => event.videoId === 'other-episode'), false)
+  assert.equal((await f.request(`${path}?cursor=bad`)).status, 400)
+})
+
 test('simultaneous distinct and repeated claims cannot exceed one or two daily slots', async () => {
   const f = await fixture()
   const responses = await Promise.all([f.claim('ep1'), f.claim('ep2'), f.claim('ep3')])
@@ -194,7 +242,8 @@ test('Cartoon Time is independent of ordinary and exempt balances, counts replay
   assert.equal(summary.days.at(-1).cartoonSeconds, 60)
   assert.equal(summary.days.at(-1).totalSeconds, 60)
   const events = await (await f.request('/api/admin/children/1/viewing-events')).json() as any
-  assert.ok(events.events.every((event: any) => event.usageBucket === 'cartoon'))
+  assert.ok(events.events.some((event: any) => event.kind === 'unlock' && event.videoId === 'ep1'))
+  assert.ok(events.events.filter((event: any) => event.kind === 'playback').every((event: any) => event.usageBucket === 'cartoon'))
 })
 
 test('changing Cartoon Time settles active use and cannot reset consumption or change the ordinary allowance', async () => {

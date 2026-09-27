@@ -32,26 +32,37 @@ onMounted(() => { void refresh() })
   <UCard class="my-5 rounded-2xl ring-1 ring-gray-200">
     <template #header>
       <div class="flex items-center justify-between gap-3">
-        <div><h2 class="font-semibold">Viewing Events</h2><p class="text-xs text-gray-500">Last 30 days · {{ timeZone }} · one record per playback session</p></div>
+        <div><h2 class="font-semibold">Viewing Events</h2><p class="text-xs text-gray-500">Last 30 days · {{ timeZone }} · playback and Episode Unlocks</p></div>
         <UButton variant="ghost" class="min-h-11" :loading="loading" @click="refresh()">Refresh</UButton>
       </div>
     </template>
-    <p class="mb-3 text-xs text-gray-500">Watch time excludes pauses and buffering. Records update as playback is acknowledged. Recording begins with playback sessions started after this feature was enabled; earlier history is unavailable.</p>
+    <p class="mb-3 text-xs text-gray-500">Unlocking an episode spends one Unlock Credit, not Watch Time. Watch time excludes pauses and buffering. Older playback history and unlocks no longer retained cannot be reconstructed.</p>
     <p v-if="error" role="alert" class="mb-3 text-sm text-red-600">{{ error }}</p>
     <p v-if="loading && !loaded" role="status" class="text-sm text-gray-500">Loading viewing events…</p>
-    <p v-else-if="loaded && !events.length" class="text-sm text-gray-500">No recorded viewing events in the last 30 days.</p>
+    <p v-else-if="loaded && !events.length" class="text-sm text-gray-500">No recorded viewing or unlock events in the last 30 days.</p>
     <ol class="divide-y divide-gray-200">
-      <li v-for="event in events" :key="event.sessionId" class="flex items-start justify-between gap-4 py-3">
+      <li v-for="event in events" :key="event.kind === 'unlock' ? `u:${event.videoId}` : `p:${event.sessionId}`" class="flex items-start justify-between gap-4 py-3">
         <div class="min-w-0">
           <p class="break-words text-sm font-medium">{{ event.videoTitle }}</p>
           <p class="text-xs text-gray-500">{{ event.channelTitle || 'Video' }} · {{ event.videoId }}</p>
-          <p class="mt-1 text-xs text-gray-600">Started {{ timestamp(event.startedAt) }}</p>
-          <p class="text-xs text-gray-500">Last watched {{ timestamp(event.lastWatchedAt) }}</p>
+          <template v-if="event.kind === 'unlock'">
+            <p class="mt-1 text-xs text-gray-600">Unlocked {{ timestamp(event.unlockedAt) }}</p>
+          </template>
+          <template v-else>
+            <p class="mt-1 text-xs text-gray-600">Started {{ timestamp(event.startedAt) }}</p>
+            <p class="text-xs text-gray-500">Last watched {{ timestamp(event.lastWatchedAt) }}</p>
+          </template>
         </div>
         <div class="shrink-0 text-right">
-          <p class="text-sm font-semibold tabular-nums">{{ duration(event.watchedSeconds) }}</p>
-          <p class="text-xs text-gray-500">{{ event.timePoolName ?? (event.usageBucket === 'cartoon' ? 'Cartoon Time' : event.usageBucket === 'exempt' ? 'Safety Cap' : 'Daily Allowance') }}</p>
-          <p class="mt-1 text-xs capitalize text-gray-500">{{ event.status }}</p>
+          <template v-if="event.kind === 'unlock'">
+            <UBadge color="primary" variant="soft">Episode Unlock</UBadge>
+            <p class="mt-1 text-xs text-gray-500">1 Unlock Credit · No Watch Time</p>
+          </template>
+          <template v-else>
+            <p class="text-sm font-semibold tabular-nums">{{ duration(event.watchedSeconds) }}</p>
+            <p class="text-xs text-gray-500">{{ event.timePoolName ?? (event.usageBucket === 'cartoon' ? 'Cartoon Time' : event.usageBucket === 'exempt' ? 'Safety Cap' : 'Daily Allowance') }}</p>
+            <p class="mt-1 text-xs capitalize text-gray-500">{{ event.status }}</p>
+          </template>
         </div>
       </li>
     </ol>

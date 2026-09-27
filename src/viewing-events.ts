@@ -1,4 +1,5 @@
-export interface ViewingEvent {
+export interface PlaybackViewingEvent {
+  kind: 'playback'
   sessionId: string
   videoId: string
   videoTitle: string
@@ -11,6 +12,16 @@ export interface ViewingEvent {
   watchedSeconds: number
   status: 'playing' | 'paused' | 'buffering' | 'ended'
 }
+
+export interface EpisodeUnlockEvent {
+  kind: 'unlock'
+  videoId: string
+  videoTitle: string
+  channelTitle: string | null
+  unlockedAt: number
+}
+
+export type ViewingEvent = PlaybackViewingEvent | EpisodeUnlockEvent
 
 export interface ViewingEventsResponse {
   events: ViewingEvent[]
