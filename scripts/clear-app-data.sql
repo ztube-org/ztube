@@ -1,5 +1,6 @@
 PRAGMA foreign_keys = ON;
 
+DELETE FROM `content_sync_jobs`;
 DELETE FROM `playback_sessions`;
 DELETE FROM `playback_progress`;
 DELETE FROM `favorite_videos`;

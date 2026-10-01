@@ -51,7 +51,12 @@ const playlistItemsSchema = v.object({
 })
 
 async function youtubeJson<TSchema extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>>(url: string, schema: TSchema): Promise<v.InferOutput<TSchema>> {
-  const response = await fetch(url)
+  // Workers rejects redirect: 'error' before issuing a request. Handle redirects explicitly.
+  const response = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(10_000) })
+  if (response.status >= 300 && response.status < 400) {
+    await response.body?.cancel()
+    throw new YouTubeApiError('YouTube API returned an unexpected redirect')
+  }
   const raw: unknown = await response.json()
   if (!response.ok) {
     const parsedError = v.safeParse(apiErrorSchema, raw)

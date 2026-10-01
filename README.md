@@ -116,6 +116,22 @@ browser tests, lint, type checks and production build before uploading the Worke
 The first deployment creates the Worker and its custom domain. Wait for the domain
 certificate to become active if Cloudflare reports it as pending.
 
+The YouTube sync heartbeat runs every 30 minutes, processes at most one source
+per run, and refreshes completed sources only after 24 hours. Channels, YouTube
+playlists and individual videos share this queue. Each automatic run has a
+20-request budget; large sources save their progress and take turns with other
+due sources on later heartbeats. The last complete catalog stays available until
+the replacement is ready. Manual **Sync** can refresh early and resumes unfinished
+work with a 40-request budget. Channel sync reads only the newest 200 upload
+entries (at most four pages / nine YouTube requests), including on manual refresh.
+Shorts and unsupported videos are filtered within that window, so fewer than 200
+playable videos may remain. A successful sync replaces the channel catalog with
+this window; separately approved videos are unaffected. Explicit YouTube playlists
+continue to sync in full.
+
+Jellyfin libraries sync only when the Admin selects **Sync**. Playback and retention
+cleanup still run separately at minutes 5 and 35, without refreshing libraries.
+
 ### 4. Set your Worker secrets
 
 Set the comma-separated list of Admin emails, then the YouTube key if you use it.

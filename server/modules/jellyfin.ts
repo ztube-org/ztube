@@ -84,14 +84,6 @@ export async function importJellyfin(env: Env, server: JellyfinServer, sourceId:
   return { id, title, imported: accepted.length, skipped: episodes.length - accepted.length }
 }
 
-export async function syncJellyfinLibraries(env: Env, instant = new Date()) {
-  const rows = await env.DB.prepare('SELECT i.server_id AS serverId, i.item_id AS itemId FROM jellyfin_imports i JOIN jellyfin_servers s ON s.id = i.server_id WHERE s.enabled = 1 AND i.last_synced_at <= ?').bind(Math.floor(instant.getTime() / 1000) - 6 * 3600).all<{ serverId: string; itemId: string }>()
-  for (const row of rows.results) {
-    try { await importJellyfin(env, await getJellyfinServer(env, row.serverId), row.itemId, instant, true) }
-    catch { console.error(JSON.stringify({ event: 'jellyfin_sync_failed', serverId: row.serverId, itemId: row.itemId })) }
-  }
-}
-
 export function registerJellyfinRoutes(app: Hono<AppEnv>, now: () => Date) {
   app.use('/api/admin/jellyfin/*', async (c, next) => { requireRole(c.get('user'), 'admin'); c.header('Cache-Control', 'no-store'); await next() })
   app.get('/api/admin/jellyfin/servers', async c => {
@@ -156,7 +148,7 @@ export function registerJellyfinRoutes(app: Hono<AppEnv>, now: () => Date) {
       db.prepare(`DELETE FROM allowed_playlists WHERE playlist_id = ? AND ${guard}`).bind(id, id, input.revision),
       db.prepare(`DELETE FROM time_pool_bindings WHERE kind = 'playlist' AND content_id = ? AND ${guard}`).bind(id, id, input.revision),
       db.prepare(`DELETE FROM playlist_videos WHERE playlist_id = ? AND ${guard}`).bind(id, id, input.revision),
-      // The foreign key also removes the import, so future automatic syncs skip it.
+      // The foreign key also removes the Jellyfin import metadata.
       db.prepare(`DELETE FROM curated_playlists WHERE id = ? AND ${guard}`).bind(id, id, input.revision),
     ])
     if (!results[3].meta.changes) throw new HTTPException(409, { message: 'This series changed or was deleted. Reload before deleting.' })

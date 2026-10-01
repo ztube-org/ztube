@@ -134,15 +134,18 @@ async function syncContent(item: any, type: 'channel' | 'playlist' | 'video') {
   syncingId.value = `${type}-${item.id}`
   try {
     await apiFetch(`/api/admin/children/${childId}/content/${type}/${item.id}/sync`, { method: 'POST' })
-    await refresh()
     if (overrideSource.value?.type === type && overrideSource.value.id === item.id) await showVideoOverrides(type, item.id, type === 'channel' ? item.channelTitle : item.playlistTitle)
-  } finally { syncingId.value = '' }
+  } catch (cause) {
+    alert(cause instanceof Error ? cause.message : 'Sync failed; automatic retry scheduled')
+  } finally { syncingId.value = ''; await refresh() }
 }
 
 function syncLabel(item: any) {
   if (item.playlistId?.startsWith('pl:jf:')) return item.lastFetchedAt ? `Jellyfin · Updated ${new Date(item.lastFetchedAt).toLocaleDateString()}` : 'Jellyfin library'
   if (item.playlistId?.startsWith('pl:')) return 'Archived playlist'
-  return item.lastFetchedAt ? `Synced ${new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).format(Math.round((new Date(item.lastFetchedAt).getTime() - Date.now()) / 3_600_000), 'hour')}` : 'Not synced yet'
+  if (item.syncError) return item.syncError
+  if (item.syncPending) return 'Sync in progress · continues automatically'
+  return item.lastFetchedAt ? `Synced ${new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).format(Math.round((new Date(item.lastFetchedAt).getTime() - Date.now()) / 3_600_000), 'hour')}` : 'Waiting for automatic sync (every 30 min)'
 }
 
 async function showVideoOverrides(type: 'channel' | 'playlist', id: number, title: string) {

@@ -44,10 +44,10 @@ test('background sync stages all pages before replacing the cache and honors the
     return Response.json({ items: [{ id, snippet: { title: id }, contentDetails: { duration: 'PT10M' } }] })
   }
   try {
-    assert.deepEqual(await syncApprovedContent(env, { now: new Date('2026-08-17T12:00:00Z') }), { synced: 1, skipped: 0, failed: 0 })
+    assert.deepEqual(await syncApprovedContent(env, { now: new Date('2026-08-17T12:00:00Z') }), { synced: 1, skipped: 0, failed: 0, pending: 0 })
     assert.equal((d1.sqlite.prepare('SELECT next_page_token FROM allowed_playlists WHERE id = 90').get() as any).next_page_token, null)
     assert.equal((d1.sqlite.prepare('SELECT COUNT(*) AS count FROM playlist_videos').get() as any).count, 2)
-    assert.deepEqual(await syncApprovedContent(env, { now: new Date('2026-08-17T12:30:00Z') }), { synced: 0, skipped: 1, failed: 0 })
+    assert.deepEqual(await syncApprovedContent(env, { now: new Date('2026-08-17T12:30:00Z') }), { synced: 0, skipped: 1, failed: 0, pending: 0 })
   } finally { globalThis.fetch = originalFetch }
 })
 
@@ -58,6 +58,7 @@ test('serves cached channel videos immediately while filtering short videos by d
   let latestVersion = 1
   globalThis.fetch = async (input) => {
     const url = new URL(String(input))
+    if (url.pathname.endsWith('/channels')) return Response.json({ items: [{ id: 'channel', snippet: { title: 'Channel' }, contentDetails: { relatedPlaylists: { uploads: 'uploads' } } }] })
     const start = url.searchParams.get('pageToken') === 'older' ? 50 : 0
     if (url.pathname.endsWith('/playlistItems')) {
       return Response.json({
@@ -70,18 +71,17 @@ test('serves cached channel videos immediately while filtering short videos by d
   }
   try {
     const first = await (await request('/api/child/channel/100/videos?refresh=true')).json() as any
-    assert.equal(first.videos.length, 25)
+    assert.equal(first.videos.length, 50)
     assert.equal(first.videos.some((video: any) => video.videoId === 'video-1'), false)
     assert.equal(first.videos[0].publishedAt, '2026-08-15T12:00:00.000Z')
-    assert.equal(first.nextPageToken, 'older')
+    assert.equal(first.nextPage, null)
 
     const cached = await (await request('/api/child/channel/100/videos')).json() as any
-    assert.equal(cached.videos.length, 25)
+    assert.equal(cached.videos.length, 50)
     assert.equal(cached.videos[0].publishedAt, '2026-08-15T12:00:00.000Z')
     assert.equal(cached.cached, true)
 
-    const older = await (await request('/api/child/channel/100/videos?page=1&pageToken=older')).json() as any
-    assert.equal(older.videos[0].videoId, 'video-50')
+    assert.equal((await request('/api/child/channel/100/videos?page=1&pageToken=older')).status, 400)
     assert.equal(d1.sqlite.prepare('SELECT COUNT(*) AS count FROM channel_videos WHERE channel_id = ?').get('channel')?.count, 50)
 
     latestVersion = 2

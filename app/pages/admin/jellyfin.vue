@@ -92,7 +92,7 @@ async function importItem(connectionId: string, itemId: string) {
   notice.value = `${result.title}: ${result.imported} episodes imported${result.skipped ? `; ${result.skipped} unsupported episodes skipped` : ''}. Choose children below to add it to their Cartoon Pool.`
 }
 async function deleteImport(item: Import) {
-  if (!confirm(`Delete “${item.title}” from ZTube for all children? This also stops automatic syncing. Videos in Jellyfin are kept.`)) return
+  if (!confirm(`Delete “${item.title}” from ZTube for all children? Videos in Jellyfin are kept.`)) return
   await apiFetch(`/api/admin/jellyfin/imports/${item.id}`, { method: 'DELETE', body: { revision: item.revision } })
   await reload()
   notice.value = `${item.title} deleted from ZTube. Videos in Jellyfin were kept.`
@@ -162,7 +162,7 @@ function syncTime(epoch: number) { return new Date(epoch * 1000).toLocaleString(
     </section>
     </div>
     <section v-show="section === 'imports'" aria-label="Imported Jellyfin series" class="space-y-3">
-      <div class="flex flex-wrap items-center justify-between gap-3"><p class="text-sm text-[var(--zt-muted)]">Shared series sync automatically about every 6 hours.</p><UInput v-model="importSearch" aria-label="Search imported series" placeholder="Find a series" /></div>
+      <div class="flex flex-wrap items-center justify-between gap-3"><p class="text-sm text-[var(--zt-muted)]">Series update only when you select Sync. Automatic sync is off.</p><UInput v-model="importSearch" aria-label="Search imported series" placeholder="Find a series" /></div>
       <p v-if="!imports.length" class="text-sm text-[var(--zt-muted)]">Use Import series to add your first series, then select who can watch.</p>
       <article v-for="item in filteredImports" :key="item.id" class="zt-panel space-y-3 p-4" :aria-label="item.title">
         <div class="flex flex-wrap items-center gap-3"><MediaArtwork :src="item.thumbnail" :title="item.title" kind="playlist" compact class="h-16 w-28 shrink-0 rounded-lg" /><div class="min-w-0 flex-1"><h3 class="font-semibold">{{ item.title }}</h3><p class="text-sm text-[var(--zt-muted)]">{{ item.episodeCount }} episodes · Updated {{ syncTime(item.lastSyncedAt) }}</p></div><UButton variant="soft" :disabled="busy || !servers.find(s => s.id === item.serverId)?.enabled" class="min-h-11" @click="act(() => importItem(item.serverId, item.itemId))">Sync</UButton><UButton color="error" variant="ghost" :disabled="busy" :aria-label="`Delete ${item.title}`" @click="act(() => deleteImport(item))">Delete</UButton></div>

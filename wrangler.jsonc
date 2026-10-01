@@ -10,7 +10,8 @@
   "preview_urls": false,
   "triggers": {
     "crons": [
-      "*/30 * * * *"
+      "*/30 * * * *",
+      "5,35 * * * *"
     ]
   },
   "routes": [

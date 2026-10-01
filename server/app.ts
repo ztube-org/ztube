@@ -1,3 +1,4 @@
+import { syncJobs } from './modules/content-sync-store.ts'
 import { seriesNavigation } from './modules/series-navigation.ts'
 import { database } from './database/client.ts'
 import { registerJellyfinRoutes } from './modules/jellyfin.ts'
@@ -245,7 +246,15 @@ export function createApp(dependencies: AppDependencies = {}) {
       db.query.allowedVideos.findMany({ where: eq(schema.allowedVideos.childId, childId) }),
       db.query.videoContentRules.findMany({ where: eq(schema.videoContentRules.childId, childId) }),
     ])
-    return c.json({ child: { id: child.id, email: child.email, displayName: child.displayName, avatarUrl: child.avatarUrl }, channels, playlists, videos, videoRules })
+    const jobs = new Map((await syncJobs(c.env.DB)).map(job => [`${job.kind}:${job.external_id}`, job]))
+    const status = (kind: string, id: string) => {
+      const job = jobs.get(`${kind}:${id}`)
+      return { syncError: job?.last_error ?? null, syncPending: Boolean(job?.page_count || (job?.lease_until ?? 0) > now().getTime()), syncPages: job?.page_count ?? 0 }
+    }
+    return c.json({ child: { id: child.id, email: child.email, displayName: child.displayName, avatarUrl: child.avatarUrl },
+      channels: channels.map(item => ({ ...item, ...status('channel', item.channelId) })),
+      playlists: playlists.map(item => ({ ...item, ...status('playlist', item.playlistId) })),
+      videos: videos.map(item => ({ ...item, ...status('video', item.videoId) })), videoRules })
   })
 
   app.get('/api/admin/children/:id/content/:type/:contentId/videos', async c => {
@@ -280,8 +289,8 @@ export function createApp(dependencies: AppDependencies = {}) {
     const content = await db.select({ id: table.id }).from(table).where(and(eq(table.id, contentId), eq(table.childId, childId))).get()
     if (!content) throw new HTTPException(404, { message: 'Approved Content not found' })
     const result = await syncApprovedContent(c.env, { target: { type, id: contentId }, force: true, now: now() })
-    if (!result.synced) throw new HTTPException(502, { message: 'Approved Content could not be synced' })
-    return c.json({ syncedAt: now().toISOString(), result })
+    if (result.failed) throw new HTTPException(502, { message: 'Sync failed; automatic retry scheduled' })
+    return c.json({ syncedAt: result.synced ? now().toISOString() : null, result }, result.pending ? 202 : 200)
   })
 
   app.put('/api/admin/children/:id/video-rules/:videoId', async c => {
@@ -624,7 +633,14 @@ async function channelOrPlaylist(c: ApiContext, kind: 'channel' | 'playlist', in
     title: source.title, thumbnail: source.thumbnail, isAvailable: source.isAvailable,
     contentRule: source.contentRule, tags: source.tags,
   }
-  if (source.externalId.startsWith('pl:') || preview || (!refresh && !pageToken)) {
+  if (kind === 'channel' && !preview) {
+    if (pageToken) throw new HTTPException(400, { message: 'Use cached channel pagination with page instead of pageToken' })
+    if (refresh) {
+      const sync = await syncApprovedContent(c.env, { target: { type: 'channel', id }, force: true, now: instant })
+      if (sync.failed) throw new HTTPException(502, { message: 'Channel sync failed; automatic retry scheduled' })
+    }
+  }
+  if (kind === 'channel' || source.externalId.startsWith('pl:') || preview || (!refresh && !pageToken)) {
     const videos = (kind === 'channel'
       ? await db.query.channelVideos.findMany({ where: and(eq(schema.channelVideos.channelId, source.externalId), sql`instr(lower(${schema.channelVideos.videoTitle} || ' ' || coalesce(${schema.channelVideos.channelTitle}, '')), lower(${query})) > 0`, sql`(${schema.channelVideos.duration} IS NULL OR ${schema.channelVideos.duration} > 180)`), orderBy: (table, { asc }) => [asc(table.position), asc(table.videoId)], limit: 51, offset: page * 50 })
       : await db.query.playlistVideos.findMany({ where: and(eq(schema.playlistVideos.playlistId, source.externalId), sql`instr(lower(${schema.playlistVideos.videoTitle} || ' ' || coalesce(${schema.playlistVideos.channelTitle}, '')), lower(${query})) > 0`, sql`(${schema.playlistVideos.duration} IS NULL OR ${schema.playlistVideos.duration} > 180)`), orderBy: (table, { asc }) => [asc(table.position), asc(table.videoId)], limit: pageSize + 1, offset: page * pageSize })) as Array<typeof schema.channelVideos.$inferSelect | typeof schema.playlistVideos.$inferSelect>

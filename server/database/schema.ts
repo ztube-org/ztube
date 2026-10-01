@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { sqliteTable, text, integer, uniqueIndex, index, primaryKey } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, uniqueIndex, index, primaryKey, foreignKey } from 'drizzle-orm/sqlite-core'
 import type { ContentRule, UsageBucket } from '../../src/domain.ts'
 
 // Every persisted account is a Child. The Admin is configured by email and has no database profile.
@@ -321,3 +321,30 @@ export const jellyfinMedia = sqliteTable('jellyfin_media', {
   itemId: text('item_id').notNull(),
   mediaSourceId: text('media_source_id').notNull(),
 }, table => [uniqueIndex('jellyfin_media_source').on(table.serverId, table.itemId)])
+
+// Shared YouTube synchronization progress; partial snapshots never enter the visible catalog.
+export const contentSyncJobs = sqliteTable('content_sync_jobs', {
+  kind: text('kind').notNull(),
+  externalId: text('external_id').notNull(),
+  pageToken: text('page_token'),
+  pageCount: integer('page_count').notNull().default(0),
+  playlistId: text('playlist_id'),
+  title: text('title'),
+  thumbnail: text('thumbnail'),
+  lastAttemptAt: integer('last_attempt_at').notNull().default(0),
+  lastError: text('last_error'),
+  leaseToken: text('lease_token'),
+  leaseUntil: integer('lease_until').notNull().default(0),
+}, table => [primaryKey({ columns: [table.kind, table.externalId] })])
+
+export const contentSyncPages = sqliteTable('content_sync_pages', {
+  kind: text('kind').notNull(),
+  externalId: text('external_id').notNull(),
+  pageNumber: integer('page_number').notNull(),
+  requestToken: text('request_token').notNull(),
+  videos: text('videos').notNull(),
+}, table => [
+  primaryKey({ columns: [table.kind, table.externalId, table.pageNumber] }),
+  uniqueIndex('content_sync_page_token').on(table.kind, table.externalId, table.requestToken),
+  foreignKey({ columns: [table.kind, table.externalId], foreignColumns: [contentSyncJobs.kind, contentSyncJobs.externalId] }).onDelete('cascade'),
+])

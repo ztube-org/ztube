@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createApp } from './app.ts'
 import { IsolatedD1, migrate } from './test-support/d1.ts'
-import { syncJellyfinLibraries } from './modules/jellyfin.ts'
+import { importJellyfin } from './modules/jellyfin.ts'
+import { getJellyfinServer } from './modules/jellyfin-client.ts'
+import worker from './index.ts'
 import { directMp4Source, jellyfinDirectUrl, remuxSource } from './modules/jellyfin-client.ts'
 
 const apiKey = 'private-jellyfin-api-key'
@@ -142,10 +144,8 @@ test('Jellyfin sync preserves approvals and claims, removes unsupported episodes
     assert.equal((await f.db.prepare('SELECT count(*) AS n FROM episode_claims').first<{ n: number }>())!.n, 1)
     assert.equal((await f.request(`admin/library-playlists/${imported.id}`)).status, 409)
     f.calls.length = 0
-    await syncJellyfinLibraries(f.env, new Date('2026-09-17T13:00:00Z'))
-    assert.equal(f.calls.length, 0)
     f.empty()
-    await syncJellyfinLibraries(f.env, new Date('2026-09-17T18:00:00Z'))
+    await f.importSeries()
     assert.ok(f.calls.length > 0)
     assert.equal((await f.db.prepare('SELECT count(*) AS n FROM playlist_videos').first<{ n: number }>())!.n, 0)
     assert.equal((await f.request('child/playback-authorizations', { videoId }, 'POST', 2)).status, 403)
@@ -205,13 +205,13 @@ test('deleting a Jellyfin import removes all sharing and sync membership while p
     }
     assert.ok(await f.db.prepare('SELECT 1 FROM jellyfin_imports WHERE playlist_id = ?').bind(other.id).first())
     assert.equal((await f.db.prepare('SELECT COUNT(*) AS n FROM jellyfin_media').first<{ n: number }>())!.n, 1)
-    await syncJellyfinLibraries(f.env, new Date('2026-09-18T12:00:00Z'))
+    await f.importSeries(season)
     assert.equal(await f.db.prepare('SELECT 1 FROM curated_playlists WHERE id = ?').bind(imported.id).first(), null)
     assert.ok(f.calls.every(path => !path.includes('/Delete')))
   } finally { f.close() }
 })
 
-test('a scheduled sync already in flight cannot recreate a deleted Jellyfin import', async () => {
+test('a refresh-only import already in flight cannot recreate a deleted Jellyfin import', async () => {
   const f = await fixture()
   try {
     const imported = await f.importSeries()
@@ -225,7 +225,7 @@ test('a scheduled sync already in flight cannot recreate a deleted Jellyfin impo
       }
       return upstream(input, init)
     }
-    await syncJellyfinLibraries(f.env, new Date('2026-09-18T12:00:00Z'))
+    await assert.rejects(importJellyfin(f.env, await getJellyfinServer(f.env, f.serverId), series, new Date('2026-09-18T12:00:00Z'), true), /This import was deleted/)
     assert.equal(deleted, true)
     assert.equal(await f.db.prepare('SELECT 1 FROM curated_playlists WHERE id = ?').bind(imported.id).first(), null)
   } finally { f.close() }
@@ -490,5 +490,26 @@ test('compatible alternate audio is copied before considering AAC conversion', a
     assert.equal(url.searchParams.get('AudioStreamIndex'), '2')
     assert.equal(url.searchParams.get('AudioBitrate'), null)
     await f.request(`${path}/${media.cleanupId}/stop`, {}, 'POST', 2)
+  } finally { f.close() }
+})
+
+
+test('scheduled heartbeats and cleanup do not refresh stale Jellyfin libraries; manual Sync still does', async () => {
+  const f = await fixture()
+  try {
+    const imported = await f.importSeries()
+    const original = await f.db.prepare('SELECT last_synced_at FROM jellyfin_imports WHERE playlist_id = ?').bind(imported.id).first<number>('last_synced_at')
+    f.calls.length = 0
+    for (const cron of ['*/30 * * * *', '5,35 * * * *']) {
+      const work: Promise<unknown>[] = []
+      worker.scheduled({ cron } as ScheduledController, f.env, { waitUntil(p: Promise<unknown>) { work.push(p) } } as ExecutionContext)
+      await Promise.all(work)
+    }
+    assert.equal(f.calls.length, 0, 'Cron must never fetch Jellyfin library metadata')
+    assert.equal(await f.db.prepare('SELECT last_synced_at FROM jellyfin_imports WHERE playlist_id = ?').bind(imported.id).first('last_synced_at'), original)
+    f.advance(2 * 86400)
+    await f.importSeries()
+    assert.ok(f.calls.length > 0)
+    assert.equal(await f.db.prepare('SELECT last_synced_at FROM jellyfin_imports WHERE playlist_id = ?').bind(imported.id).first('last_synced_at'), original! + 2 * 86400)
   } finally { f.close() }
 })

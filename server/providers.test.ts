@@ -86,7 +86,7 @@ test('Playlists: explicit sharing, stable media IDs, atomic revisions, independe
     auth = await (await f.request('child/playback-authorizations', { videoId: f.videoId }, 'POST', 2)).json() as any
     assert.equal(auth.authorization.usageBucket, 'exempt')
     globalThis.fetch = async () => { throw new Error('Curated Playlists must never reach YouTube sync') }
-    assert.deepEqual(await syncApprovedContent(f.env, { force: true }), { synced: 0, skipped: 0, failed: 0 })
+    assert.deepEqual(await syncApprovedContent(f.env, { force: true }), { synced: 0, skipped: 0, failed: 0, pending: 0 })
   } finally { globalThis.fetch = originalFetch; f.d1.sqlite.close() }
 })
 
