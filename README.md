@@ -127,7 +127,9 @@ entries (at most four pages / nine YouTube requests), including on manual refres
 Shorts and unsupported videos are filtered within that window, so fewer than 200
 playable videos may remain. A successful sync replaces the channel catalog with
 this window; separately approved videos are unaffected. Explicit YouTube playlists
-continue to sync in full.
+continue to sync in full. Completed syncs insert new videos, update changed metadata
+or ordering, and delete videos outside the new snapshot. Unchanged catalog rows
+are not rewritten; freshness is tracked on the approved source.
 
 Jellyfin libraries sync only when the Admin selects **Sync**. Playback and retention
 cleanup still run separately at minutes 5 and 35, without refreshing libraries.

@@ -59,18 +59,42 @@ export async function saveSyncPage(db: D1Database, job: SyncJob, page: {
     const approvals = job.kind === 'channel' ? 'allowed_channels' : 'allowed_playlists'
     const key = job.kind === 'channel' ? 'channel_id' : 'playlist_id'
     const epoch = Math.floor(instant.getTime() / 1000)
-    statements.push(db.prepare(`DELETE FROM ${table} WHERE ${key} = ? AND ${guard.sql}`).bind(job.external_id, ...guard.args))
+    // Remove only videos absent from the completed snapshot. Keep unchanged rows and their timestamps.
+    statements.push(db.prepare(`DELETE FROM ${table} WHERE ${key} = ? AND ${guard.sql}
+      AND video_id NOT IN (
+        SELECT json_extract(v.value, '$.videoId') FROM content_sync_pages p, json_each(p.videos) v
+        WHERE p.kind = ? AND p.external_id = ?
+      )`).bind(job.external_id, ...guard.args, job.kind, job.external_id))
+    // Filter before INSERT: even a no-op conflict can otherwise write SQLite's AUTOINCREMENT sequence.
     statements.push(db.prepare(`INSERT INTO "${table}" (${key}, video_id, position, video_title, video_description, video_thumbnail, duration, channel_title, published_at, fetched_at)
       SELECT ?, json_extract(v.value, '$.videoId'), json_extract(v.value, '$.position'), json_extract(v.value, '$.title'),
         json_extract(v.value, '$.description'), json_extract(v.value, '$.thumbnail'), json_extract(v.value, '$.duration'),
         json_extract(v.value, '$.channelTitle'), json_extract(v.value, '$.publishedAt'), ?
       FROM content_sync_pages p, json_each(p.videos) v
       WHERE p.kind = ? AND p.external_id = ? AND ${guard.sql}
+      AND NOT EXISTS (
+        SELECT 1 FROM ${table} current WHERE current.${key} = ?
+          AND current.video_id = json_extract(v.value, '$.videoId')
+          AND current.position IS json_extract(v.value, '$.position')
+          AND current.video_title IS json_extract(v.value, '$.title')
+          AND current.video_description IS json_extract(v.value, '$.description')
+          AND current.video_thumbnail IS json_extract(v.value, '$.thumbnail')
+          AND current.duration IS json_extract(v.value, '$.duration')
+          AND current.channel_title IS json_extract(v.value, '$.channelTitle')
+          AND current.published_at IS json_extract(v.value, '$.publishedAt')
+      )
       ORDER BY p.page_number, v.key
       ON CONFLICT (${key}, video_id) DO UPDATE SET position = excluded.position, video_title = excluded.video_title,
         video_description = excluded.video_description, video_thumbnail = excluded.video_thumbnail, duration = excluded.duration,
-        channel_title = excluded.channel_title, published_at = excluded.published_at, fetched_at = excluded.fetched_at`)
-      .bind(job.external_id, epoch, job.kind, job.external_id, ...guard.args))
+        channel_title = excluded.channel_title, published_at = excluded.published_at, fetched_at = excluded.fetched_at
+      WHERE ${table}.position IS NOT excluded.position
+        OR ${table}.video_title IS NOT excluded.video_title
+        OR ${table}.video_description IS NOT excluded.video_description
+        OR ${table}.video_thumbnail IS NOT excluded.video_thumbnail
+        OR ${table}.duration IS NOT excluded.duration
+        OR ${table}.channel_title IS NOT excluded.channel_title
+        OR ${table}.published_at IS NOT excluded.published_at`)
+      .bind(job.external_id, epoch, job.kind, job.external_id, ...guard.args, job.external_id))
     statements.push(db.prepare(`UPDATE ${approvals} SET last_fetched_at = ?, next_page_token = NULL, is_available = 1,
       ${job.kind}_title = ?, ${job.kind}_thumbnail = ? ${job.kind === 'channel' ? ', uploads_playlist_id = ?' : ''}
       WHERE ${key} = ? AND ${guard.sql}`).bind(epoch, page.title, page.thumbnail,

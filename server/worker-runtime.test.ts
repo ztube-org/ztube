@@ -115,7 +115,24 @@ test('Workers/D1: staged sync atomically publishes shared freshness and removes 
     assert.equal(await db.prepare('SELECT count(*) AS n FROM channel_videos').first('n'), 2)
     assert.equal(await db.prepare('SELECT count(*) AS n FROM allowed_channels WHERE last_fetched_at IS NOT NULL').first('n'), 2)
     assert.equal(await db.prepare('SELECT count(*) AS n FROM content_sync_pages').first('n'), 0)
-    const another = (await claimSyncJob(db, source, now))!
+    const tomorrow = new Date(now.getTime() + 86400000)
+    const repeated = (await claimSyncJob(db, source, tomorrow))!
+    await saveSyncPage(db, repeated, page, tomorrow)
+    const finalPage = (await claimSyncJob(db, source, tomorrow))!
+    let catalogWrites: number[] = []
+    const measuredDb = {
+      prepare: db.prepare.bind(db),
+      async batch(statements: D1PreparedStatement[]) {
+        const results = await db.batch(statements)
+        catalogWrites = [results[1].meta.rows_written, results[2].meta.rows_written]
+        return results
+      },
+    } as D1Database
+    await saveSyncPage(measuredDb, finalPage, { ...page, videos: [{ ...video, videoId: 'newer' }], nextPageToken: null }, tomorrow)
+    assert.deepEqual(catalogWrites, [0, 0], 'unchanged catalog DELETE and UPSERT bill zero row writes in D1')
+    assert.equal(await db.prepare('SELECT fetched_at FROM channel_videos LIMIT 1').first('fetched_at'), now.getTime() / 1000)
+    assert.equal(await db.prepare('SELECT last_fetched_at FROM allowed_channels LIMIT 1').first('last_fetched_at'), tomorrow.getTime() / 1000)
+    const another = (await claimSyncJob(db, source, tomorrow))!
     await saveSyncPage(db, another, page, now)
     await db.prepare('DELETE FROM allowed_channels').run()
     await pruneSyncJobs(db)
