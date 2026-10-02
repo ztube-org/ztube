@@ -198,3 +198,29 @@ test('unavailable videos prevent navigation while their separate Favorite contro
   await page.getByRole('button', { name: 'Add Science experiment 1 to Favorites', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Remove Science experiment 1 from Favorites', exact: true })).toBeVisible()
 })
+
+test('YouTube progress-only messages survive the first heartbeat, but a silent iframe still stops', async ({ page }) => {
+  test.setTimeout(45_000)
+  const state = await fixture(page)
+  await page.route('https://www.youtube-nocookie.com/**', route => route.fulfill({ contentType: 'text/html', body: `<body>Player<script>
+    let started = false, timer, currentTime = 45;
+    const send = info => parent.postMessage(JSON.stringify({ event: 'infoDelivery', info }), '*');
+    addEventListener('message', event => {
+      const message = JSON.parse(event.data);
+      if (message.event === 'listening' && !started) {
+        started = true;
+        parent.postMessage(JSON.stringify({ event: 'initialDelivery', info: { currentTime, playerState: 1 } }), '*');
+        timer = setInterval(() => send({ currentTime: ++currentTime }), 500);
+      }
+    });
+    window.stopReporting = () => clearInterval(timer);
+  </script></body>` }))
+  await page.goto('/watch?v=video-0&channel=1', { waitUntil: 'domcontentloaded' })
+  await expect.poll(() => state.heartbeats.filter(h => h.state === 'playing').length, { timeout: 22_000 }).toBeGreaterThanOrEqual(2)
+  await expect(page.locator('.zt-watch-player iframe')).toBeVisible()
+  await expect(page.getByText(/stopped reporting its state/)).toBeHidden()
+  const frame = page.frames().find(frame => frame.url().startsWith('https://www.youtube-nocookie.com/'))!
+  await frame.evaluate(() => (window as unknown as { stopReporting(): void }).stopReporting())
+  await expect(page.getByText(/stopped reporting its state/)).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('.zt-watch-player iframe')).toHaveCount(0)
+})

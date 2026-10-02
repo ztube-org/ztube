@@ -485,3 +485,47 @@ test('completion queued behind an in-flight heartbeat is still delivered when le
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(calls.length, 2)
 })
+
+test('continuous YouTube progress deltas keep confirmed playing state alive beyond the reporting timeout', async t => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] })
+  const browser = installNoCookiePlayerWindow()
+  const states: string[] = []
+  const page = await watchPage((sequence, state) => {
+    states.push(state)
+    return { sequence, remainingSeconds: 3600, authorized: true }
+  })
+  try {
+    const mounting = page.mount()
+    await new Promise(resolve => setImmediate(resolve))
+    browser.message('initialDelivery', { currentTime: 0, playerState: 1 })
+    await mounting
+    for (let second = 1; second <= 60; second++) {
+      browser.message('infoDelivery', { currentTime: second })
+      t.mock.timers.tick(1000)
+      await new Promise(resolve => setImmediate(resolve))
+      assert.equal(browser.wasRemoved(), false, `normal progress must not stop playback at ${second}s`)
+    }
+    assert.ok(states.length >= 5)
+    assert.ok(states.slice(1).every(state => state === 'playing'), 'progress deltas retain the last explicit playing state and keep charging time')
+    t.mock.timers.tick(10_000)
+    assert.equal(browser.wasRemoved(), true, 'a genuinely silent iframe must still stop')
+  } finally { page.unmount(); browser.restore() }
+})
+
+for (const advancing of [false, true]) {
+  test(`paused progress deltas ${advancing ? 'cannot renew unmetered advancing playback' : 'keep an idle player available'}`, async t => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] })
+    const browser = installNoCookiePlayerWindow()
+    let player: YouTubePlayer | undefined
+    try {
+      const pending = createYouTubePlayer('youtube-player', { videoId: 'approved', onReady() {} })
+      browser.message('initialDelivery', { currentTime: 45, playerState: 2 })
+      player = await pending
+      for (let second = 1; second <= 20; second++) {
+        browser.message('infoDelivery', { currentTime: advancing ? 45 + second : 45 })
+        t.mock.timers.tick(1000)
+      }
+      assert.equal(browser.wasRemoved(), advancing)
+    } finally { player?.destroy?.(); browser.restore() }
+  })
+}

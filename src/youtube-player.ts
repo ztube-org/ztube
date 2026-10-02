@@ -119,7 +119,13 @@ export async function createYouTubePlayer(elementId: string, options: YouTubePla
       if (message.event === 'onStateChange' && typeof message.info === 'number') reportState(message.info)
       if (message.info && typeof message.info === 'object') {
         const info = message.info as { currentTime?: unknown; playerState?: unknown }
-        if (typeof info.currentTime === 'number') currentTime = info.currentTime
+        if (typeof info.currentTime === 'number' && Number.isFinite(info.currentTime) && info.currentTime >= 0) {
+          // YouTube sends progress deltas without repeating an unchanged playerState.
+          // A confirmed playing state remains billable while these messages arrive.
+          // Never let advancing progress keep an unknown/paused state alive unmetered.
+          if (lastState === 1 || (lastState !== undefined && info.currentTime === currentTime)) lastStatusAt = Date.now()
+          currentTime = info.currentTime
+        }
         if (typeof info.playerState === 'number') reportState(info.playerState)
       }
       if (message.event === 'onReady' || message.event === 'initialDelivery' || message.event === 'infoDelivery') finishReady()
