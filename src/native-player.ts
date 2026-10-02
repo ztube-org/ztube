@@ -43,6 +43,7 @@ export function createNativePlayer(elementId: string, options: {
   video.preload = 'metadata'
   video.setAttribute('controlsList', 'nodownload noremoteplayback')
   video.disableRemotePlayback = true
+  video.disablePictureInPicture = true
   video.style.width = '100%'
   video.style.height = '100%'
   let media: NativeMedia | undefined
@@ -50,10 +51,23 @@ export function createNativePlayer(elementId: string, options: {
   let destroyed = false
   let refreshed = false
   let resume = options.resumeAt
-  const state = (value: PlaybackState) => { if (!destroyed) options.onStateChange(value) }
+  let lastState: PlaybackState | undefined
+  const state = (value: PlaybackState) => {
+    if (destroyed) return
+    lastState = value
+    options.onStateChange(value)
+  }
   video.addEventListener('playing', () => {
-    if (document.hidden && !document.pictureInPictureElement) { video.pause(); state('paused') }
+    if (document.hidden) { video.pause(); state('paused') }
     else state('playing')
+  })
+  // Recover a missed playing/seeked event without treating a seek as watch time.
+  video.addEventListener('timeupdate', () => {
+    if (document.hidden) { video.pause(); state('paused') }
+    else {
+      const next = video.ended ? 'ended' : video.paused ? 'paused' : video.seeking || video.readyState < 3 ? 'buffering' : 'playing'
+      if (next !== lastState) state(next)
+    }
   })
   video.addEventListener('pause', () => state(video.ended ? 'ended' : 'paused'))
   video.addEventListener('ended', () => { state('ended'); player.destroy?.() })

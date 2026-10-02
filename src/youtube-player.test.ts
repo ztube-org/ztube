@@ -69,6 +69,7 @@ async function watchPage(heartbeat: (sequence: number, state: string) => unknown
     '../../src/youtube-player': youtubePlayer,
     '../../src/native-player': { createNativePlayer: () => { throw new Error('YouTube must not create a native player') } },
     '../../src/api': {
+      ApiError: class extends Error {},
       useAuth: () => ({ logout() {} }),
       apiFetch: async (url: string, options: { body: { sequence: number; state: string } }) => {
         if (url.endsWith('/heartbeats')) return heartbeat(options.body.sequence, options.body.state)
@@ -86,7 +87,7 @@ async function watchPage(heartbeat: (sequence: number, state: string) => unknown
   return { mount: mounted, unmount }
 }
 
-test('watch page counts autoplay delivered before reporter initialization', async t => {
+test('watch page verifies the connection before creating the iframe and counts autoplay', async t => {
   t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] })
   const browser = installNoCookiePlayerWindow()
   const states: string[] = []
@@ -99,19 +100,20 @@ test('watch page counts autoplay delivered before reporter initialization', asyn
     await new Promise(resolve => setImmediate(resolve))
     browser.message('initialDelivery', { currentTime: 0, playerState: 1 })
     await mounting
-    for (let i = 1; i <= 721; i++) {
-      browser.message('infoDelivery', { currentTime: i * 15, playerState: 1 })
-      t.mock.timers.tick(15_000)
+    for (let i = 1; i <= 30; i++) {
+      browser.message('infoDelivery', { currentTime: i, playerState: 1 })
+      t.mock.timers.tick(1000)
       await new Promise(resolve => setImmediate(resolve))
     }
-    assert.ok(states.length >= 721)
-    assert.ok(states.every(state => state === 'playing'), 'autoplay must never be reported as paused')
+    assert.ok(states.length >= 3)
+    assert.equal(states[0], 'paused', 'check reporting before the iframe can autoplay')
+    assert.ok(states.slice(1).every(state => state === 'playing'), 'autoplay must never be reported as paused')
   } finally { page.unmount(); browser.restore() }
 })
 
 test('watch page removes the playable iframe when authorization ends', async () => {
   const browser = installNoCookiePlayerWindow()
-  const page = await watchPage(sequence => ({ sequence, remainingSeconds: 0, authorized: false }))
+  const page = await watchPage(sequence => ({ sequence, remainingSeconds: sequence === 1 ? 120 : 0, authorized: sequence === 1 }))
   try {
     const mounting = page.mount()
     await new Promise(resolve => setImmediate(resolve))
@@ -142,7 +144,7 @@ for (const cause of ['denied', 'offline'] as const) {
     })
     try {
       reporter.setState('playing')
-      await Promise.resolve()
+      await new Promise(resolve => setImmediate(resolve))
       if (cause === 'offline') t.mock.timers.tick(60_000)
       assert.equal(paused, 1)
       assert.equal(blocked, 1)
@@ -240,11 +242,11 @@ test('pauses hidden playback and stops when the server ends authorization', asyn
   visibility?.()
   await new Promise(resolve => setTimeout(resolve, 0))
   assert.deepEqual(states, ['paused'])
-  assert.equal(paused, 2)
+  assert.equal(paused, 1)
   reporter.stop()
 })
 
-test('pauses when heartbeats cannot renew the 60-second lease', async () => {
+test('pauses immediately when heartbeats fail and cannot restart offline', async () => {
   let paused = 0
   let time = 0
   const document = {
@@ -265,11 +267,11 @@ test('pauses when heartbeats cannot renew the 60-second lease', async () => {
   })
   reporter.setState('playing')
   await new Promise(resolve => setTimeout(resolve, 0))
-  assert.equal(paused, 0)
+  assert.equal(paused, 1)
   time = 60_000
   reporter.setState('playing')
   await new Promise(resolve => setTimeout(resolve, 0))
-  assert.equal(paused, 1)
+  assert.equal(paused, 2)
   reporter.stop()
 })
 
@@ -416,6 +418,51 @@ test('leaving before YouTube is ready immediately removes its iframe and rejects
     await assert.rejects(pending, /Playback page changed/)
     assert.equal(browser.wasRemoved(), true)
   } finally { browser.restore() }
+})
+
+test('a failed reporting preflight never creates a playable iframe', async () => {
+  const browser = installNoCookiePlayerWindow()
+  const page = await watchPage(async () => { throw new Error('offline') })
+  try {
+    await page.mount()
+    assert.equal(browser.iframe.src, '')
+  } finally { page.unmount(); browser.restore() }
+})
+
+test('advancing progress without fresh player state cannot silently renew paused playback', async t => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] })
+  const browser = installNoCookiePlayerWindow()
+  const page = await watchPage(sequence => ({ sequence, remainingSeconds: 3600, authorized: true }))
+  try {
+    const mounting = page.mount()
+    await new Promise(resolve => setImmediate(resolve))
+    browser.message('onReady')
+    await mounting
+    for (let second = 1; second <= 10; second++) {
+      browser.message('infoDelivery', { currentTime: second })
+      t.mock.timers.tick(1000)
+      await new Promise(resolve => setImmediate(resolve))
+    }
+    assert.equal(browser.wasRemoved(), true)
+  } finally { page.unmount(); browser.restore() }
+})
+
+test('fresh paused state keeps a paused player available without charging watch time', async t => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] })
+  const browser = installNoCookiePlayerWindow()
+  const page = await watchPage(sequence => ({ sequence, remainingSeconds: 1, authorized: true }))
+  try {
+    const mounting = page.mount()
+    await new Promise(resolve => setImmediate(resolve))
+    browser.message('initialDelivery', { currentTime: 45, playerState: 2 })
+    await mounting
+    for (let second = 1; second <= 20; second++) {
+      browser.message('infoDelivery', { currentTime: 45, playerState: 2 })
+      t.mock.timers.tick(1000)
+      await new Promise(resolve => setImmediate(resolve))
+    }
+    assert.equal(browser.wasRemoved(), false)
+  } finally { page.unmount(); browser.restore() }
 })
 
 test('completion queued behind an in-flight heartbeat is still delivered when leaving', async () => {

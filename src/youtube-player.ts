@@ -60,7 +60,7 @@ export async function createYouTubePlayer(elementId: string, options: YouTubePla
     embedUrl.searchParams.set('playsinline', '1')
     iframe.src = embedUrl.toString()
     iframe.title = 'YouTube video player'
-    iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share'
+    iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture 'none'; web-share"
     iframe.allowFullscreen = true
     iframe.style.width = '100%'
     iframe.style.height = '100%'
@@ -68,6 +68,7 @@ export async function createYouTubePlayer(elementId: string, options: YouTubePla
 
     let currentTime = 0
     let lastState: number | undefined
+    let lastStatusAt = Date.now()
     let ready = false
     let destroyed = false
 
@@ -85,18 +86,19 @@ export async function createYouTubePlayer(elementId: string, options: YouTubePla
       if (ready || destroyed) return
       ready = true
       clearTimeout(timeout)
-      clearInterval(handshake)
+      lastStatusAt = Date.now()
       options.onReady(player)
       resolve(player)
     }
     const reportState = (code: number) => {
+      if (![-1, 0, 1, 2, 3, 5].includes(code)) return
+      lastStatusAt = Date.now()
       if (code === lastState) return
       lastState = code
       options.onStateChange?.(youtubeState(code))
     }
-    const fail = (code: number) => {
+    const fail = (error: Error) => {
       if (destroyed) return
-      const error = new Error(playbackErrorMessage(code))
       cleanup(true)
       options.onError?.(error)
       reject(error)
@@ -111,7 +113,7 @@ export async function createYouTubePlayer(elementId: string, options: YouTubePla
       }
       if (!message || typeof message !== 'object') return
       if (message.event === 'onError' && typeof message.info === 'number') {
-        fail(message.info)
+        fail(new Error(playbackErrorMessage(message.info)))
         return
       }
       if (message.event === 'onStateChange' && typeof message.info === 'number') reportState(message.info)
@@ -143,7 +145,14 @@ export async function createYouTubePlayer(elementId: string, options: YouTubePla
       cleanup(true)
       reject(new Error('YouTube could not load. Restricted mode, parental controls, or the network may be blocking playback.'))
     }, 12_000)
-    const handshake = setInterval(listen, 500)
+    // Keep requesting a fresh state after startup, including while paused.
+    // Server heartbeats alone cannot prove that the iframe is still reporting.
+    const handshake = setInterval(() => {
+      if (ready && Date.now() - lastStatusAt >= 10_000) {
+        fail(new Error('Playback stopped because the video player stopped reporting its state. Please try again.'))
+      } else if (ready) post({ event: 'listening', id: elementId })
+      else listen()
+    }, 500)
     iframe.addEventListener('load', listen)
     window.addEventListener('message', receive)
     options.signal?.addEventListener('abort', abort, { once: true })
@@ -151,11 +160,13 @@ export async function createYouTubePlayer(elementId: string, options: YouTubePla
   })
 }
 
+export type PlaybackStopReason = 'allowance' | 'connection' | 'background' | 'denied'
+
 export function createPlaybackReporter(options: {
   initialRemainingSeconds: number
   heartbeat: (sequence: number, state: PlaybackState, positionSeconds: number, keepalive?: boolean) => Promise<{ sequence: number; remainingSeconds: number; authorized: boolean; leaseExpiresAt?: string | null }>
   pause: () => void
-  onBlocked?: () => void
+  onBlocked?: (reason: PlaybackStopReason) => void
   position?: () => number
   onRemaining: (seconds: number) => void
   document?: Pick<Document, 'hidden' | 'pictureInPictureElement' | 'addEventListener' | 'removeEventListener'>
@@ -166,89 +177,127 @@ export function createPlaybackReporter(options: {
 }) {
   let sequence = 0
   let state: PlaybackState = 'paused'
-  let remaining = options.initialRemainingSeconds
+  let remainingMs = options.initialRemainingSeconds * 1000
+  let lastServerRemaining = options.initialRemainingSeconds
+  let playedMs = 0
   let stopped = false
   let blocked = false
   let sending = false
   let sendQueued = false
   const now = options.now ?? Date.now
+  const document = options.document ?? window.document
   const leaseMs = options.leaseMs ?? 60_000
-  let leaseDeadline = options.initialLeaseDeadline ?? now() + leaseMs
-  let leaseTimer: ReturnType<typeof setTimeout>
+  let lastTick = now()
+  let leaseDeadline = options.initialLeaseDeadline ?? lastTick + leaseMs
+  let requestDeadline = Infinity
+  let watchdog: ReturnType<typeof setTimeout>
+  let cancelRequest: (() => void) | undefined
+  const publish = () => options.onRemaining(Math.ceil(remainingMs / 1000))
+  const account = () => {
+    const instant = now()
+    if (state === 'playing') {
+      const elapsed = Math.max(0, instant - lastTick)
+      playedMs += elapsed
+      remainingMs = Math.max(0, remainingMs - elapsed)
+    }
+    lastTick = instant
+    publish()
+  }
   const stop = () => {
     stopped = true
     clearInterval(timer)
-    clearTimeout(leaseTimer)
+    clearTimeout(watchdog)
+    cancelRequest?.()
     document.removeEventListener('visibilitychange', visibility)
   }
-  const block = () => {
+  const finalHeartbeat = () => {
+    const position = Math.max(0, Math.floor(options.position?.() ?? 0))
+    // Supersede an in-flight playing heartbeat, including when stopping locally.
+    void options.heartbeat(++sequence, state === 'ended' ? 'ended' : 'paused', position, true).catch(() => undefined)
+  }
+  const block = (reason: PlaybackStopReason) => {
     if (stopped) return
     blocked = true
     stop()
+    finalHeartbeat()
     options.pause()
-    options.onBlocked?.()
+    options.onBlocked?.(reason)
   }
-  const stopForExpiredLease = () => {
+  const check = () => {
+    if (stopped) return false
+    account()
+    if (document.hidden) block('background')
+    else if (remainingMs <= 0) block('allowance')
+    else if (now() >= leaseDeadline || now() >= requestDeadline) block('connection')
+    return !stopped
+  }
+  const arm = () => {
+    clearTimeout(watchdog)
     if (stopped) return
-    // A timer can fire just before the wall-clock deadline. Keep a watchdog
-    // armed even while a heartbeat remains pending indefinitely.
-    if (now() < leaseDeadline) { armLeaseWatchdog(); return }
-    block()
+    const delay = Math.min(1000, leaseDeadline - now(), requestDeadline - now(), state === 'playing' ? remainingMs : Infinity)
+    watchdog = setTimeout(() => { if (check()) arm() }, Math.max(1, delay))
   }
-  const armLeaseWatchdog = () => {
-    clearTimeout(leaseTimer)
-    leaseTimer = setTimeout(stopForExpiredLease, Math.max(1, leaseDeadline - now()))
-  }
-  const send = async () => {
-    if (stopped) return
-    if (sending) { sendQueued = true; return }
+  const send = async (): Promise<boolean> => {
+    if (!check()) return false
+    if (sending) { sendQueued = true; return false }
     sending = true
     const sentSequence = ++sequence
     const sentAt = now()
+    const playedAtSend = playedMs
+    requestDeadline = sentAt + 5000
+    arm()
     try {
-      const response = await options.heartbeat(sentSequence, state, Math.max(0, Math.floor(options.position?.() ?? 0)))
-      if (stopped) return
-      // Ended/revoked sessions can deny this request with their last accepted
-      // sequence. That denial still requires stopping the player immediately.
-      if (response.authorized && response.sequence < sentSequence) return
-      remaining = response.remainingSeconds
-      options.onRemaining(remaining)
-      if (!response.authorized) block()
-      else {
-        const serverDeadline = response.leaseExpiresAt ? Date.parse(response.leaseExpiresAt) : NaN
-        leaseDeadline = Number.isFinite(serverDeadline) ? Math.min(serverDeadline, sentAt + leaseMs) : sentAt + leaseMs
-        armLeaseWatchdog()
+      const cancelled = new Promise<null>(resolve => { cancelRequest = () => resolve(null) })
+      const response = await Promise.race([options.heartbeat(sentSequence, state, Math.max(0, Math.floor(options.position?.() ?? 0))), cancelled])
+      if (!response || !check()) return false
+      if (!response.authorized || response.sequence !== sentSequence) {
+        remainingMs = Math.min(remainingMs, Math.max(0, response.remainingSeconds * 1000))
+        publish()
+        block('denied')
+        return false
       }
+      // Never restore time spent locally while a request was in flight. A
+      // genuinely larger server balance permits an extension or a new day.
+      const serverRemainingMs = Math.max(0, response.remainingSeconds * 1000 - (playedMs - playedAtSend))
+      remainingMs = response.remainingSeconds > lastServerRemaining ? serverRemainingMs : Math.min(remainingMs, serverRemainingMs)
+      lastServerRemaining = response.remainingSeconds
+      const serverDeadline = response.leaseExpiresAt ? Date.parse(response.leaseExpiresAt) : NaN
+      leaseDeadline = Number.isFinite(serverDeadline) ? Math.min(serverDeadline, sentAt + leaseMs) : sentAt + leaseMs
+      return check()
     } catch {
-      stopForExpiredLease()
+      // A failed playing transition must not become an unmetered 60-second lease.
+      block('connection')
+      return false
     } finally {
       sending = false
+      requestDeadline = Infinity
+      cancelRequest = undefined
+      arm()
       if (!stopped && sendQueued) { sendQueued = false; void send() }
     }
   }
-  const document = options.document ?? window.document
-  const visibility = () => {
-    if (document.hidden && !document.pictureInPictureElement) { options.pause(); state = 'paused'; void send() }
-  }
+  const visibility = () => { if (check()) { arm(); void send() } }
   document.addEventListener('visibilitychange', visibility)
   const timer = setInterval(() => { void send() }, options.intervalMs ?? 15_000)
-  armLeaseWatchdog()
-  options.onRemaining(remaining)
+  arm()
+  publish()
   return {
+    // Verify the reporting connection before exposing a playable media element.
+    connect: send,
     finish() {
       if (stopped) return
-      const position = Math.max(0, Math.floor(options.position?.() ?? 0))
+      account()
       stop()
-      // A higher sequence makes a late in-flight heartbeat harmless. Send now,
-      // rather than waiting for that request while the page may be unloading.
-      void options.heartbeat(++sequence, state === 'ended' ? 'ended' : 'paused', position, true).catch(() => undefined)
+      finalHeartbeat()
     },
     setState(next: PlaybackState) {
       if (stopped) {
         if (blocked && next === 'playing') options.pause()
         return
       }
+      if (!check()) return
       state = next
+      arm()
       void send()
     },
     stop,

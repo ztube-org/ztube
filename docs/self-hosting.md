@@ -44,6 +44,12 @@ are retained for 30 days and exposed to Admins. See [privacy details](../SECURIT
 2. Tap **Share → Add to Home Screen**, keeping **Open as Web App** enabled if offered.
 3. Confirm sign-in and playback work from the Home Screen icon.
 
+Playback stops when ZTube goes into the background, including when the iPad is
+locked. Return to ZTube and tap **Try again** to check the remaining allowance
+before continuing. Picture-in-picture is disabled where the browser supports it.
+Playback also stops if a viewing-time check fails or takes more than five seconds;
+restore the connection and try again. Test these transitions on the target iPad.
+
 ZTube cannot block the YouTube website or app. If you need device-level controls,
 configure Screen Time with a passcode the Child does not know:
 

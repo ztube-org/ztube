@@ -192,6 +192,56 @@ test('Child chooses a season, resumes native playback, selects Next and stops on
   expect(errors).toEqual([])
 })
 
+test('native playback stops at the remaining allowance between server heartbeats', async ({ page }) => {
+  await fixture(page)
+  await page.route('**/api/child/playback-authorizations', route => route.fulfill({ json: { authorization: {
+    sessionId: 'short', playerKind: 'native', leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    remainingSeconds: 3, usageBucket: 'restricted', resumeAt: 0, videoTitle: 'Short allowance',
+  } } }))
+  await page.route('**/heartbeats', route => route.fulfill({ json: {
+    sequence: route.request().postDataJSON().sequence, remainingSeconds: 3, authorized: true,
+  } }))
+  await page.goto('/watch?v=ol:episode-1')
+  await expect(page.locator('video')).toHaveCount(1)
+  await page.locator('video').evaluate((video: HTMLVideoElement) => video.play())
+  await expect(page.locator('video')).toHaveCount(0, { timeout: 8000 })
+  await expect(page.getByText('Today’s viewing allowance is used up.', { exact: true })).toBeVisible()
+})
+
+test('a failed playing heartbeat removes native playback and explains the connection failure', async ({ page }) => {
+  await fixture(page)
+  await page.route('**/heartbeats', route => {
+    const body = route.request().postDataJSON()
+    return body.state === 'playing' ? route.abort('failed') : route.fulfill({ json: { sequence: body.sequence, remainingSeconds: 1800, authorized: true } })
+  })
+  await page.goto('/watch?v=ol:episode-1')
+  await expect(page.getByRole('alert')).toContainText('your viewing time could not be checked')
+  await expect(page.locator('video')).toHaveCount(0)
+})
+
+test('backgrounding removes native playback and requires a fresh check to continue', async ({ page }) => {
+  await fixture(page)
+  await page.goto('/watch?v=ol:episode-1')
+  await expect(page.locator('video')).toHaveCount(1)
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await expect(page.locator('video')).toHaveCount(0)
+  await expect(page.getByRole('alert')).toContainText('in the background')
+  await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
+})
+
+test('native playback recovers accounting when playing and seeked events are missed', async ({ page }) => {
+  await page.addInitScript(() => {
+    for (const event of ['playing', 'seeked']) document.addEventListener(event, e => e.stopImmediatePropagation(), true)
+  })
+  const state = await fixture(page)
+  await page.goto('/watch?v=ol:episode-1')
+  await expect.poll(() => state.heartbeats.some(heartbeat => heartbeat.state === 'playing')).toBe(true)
+  await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime)).toBeGreaterThan(45)
+})
+
 test('Admin can cancel or confirm deleting a saved legacy Playlist', async ({ page }) => {
   await fixture(page, true)
   let deleted = false

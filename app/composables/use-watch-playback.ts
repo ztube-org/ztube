@@ -33,7 +33,6 @@ export function useWatchPlayback(videoId: string) {
   const claimPending = ref(false)
   const claimError = ref('')
   let reporter: ReturnType<typeof createPlaybackReporter> | null = null
-  let playbackState: PlaybackState = 'paused'
   let disposed = false
   const abort = new AbortController()
 
@@ -77,9 +76,26 @@ export function useWatchPlayback(videoId: string) {
           videoTitle.value = authorization.videoTitle
           videoDescription.value = authorization.videoDescription
           channelTitle.value = authorization.channelTitle
+          if (disposed) throw new Error('Playback page changed')
+          reporter = createPlaybackReporter({
+            initialRemainingSeconds: authorization.remainingSeconds,
+            initialLeaseDeadline: Date.parse(authorization.leaseExpiresAt) || undefined,
+            heartbeat: (sequence, state, positionSeconds, keepalive) => apiFetch(`/api/child/playback-authorizations/${authorization.sessionId}/heartbeats`, { method: 'POST', keepalive, body: { sequence, state, positionSeconds } }),
+            pause: () => player.value?.pauseVideo?.(),
+            onBlocked: reason => {
+              if (reason === 'background') playbackError.value = 'Playback stopped while ZTube was in the background. Tap Try again to continue.'
+              else if (reason === 'connection') playbackError.value = 'Playback stopped because your viewing time could not be checked. Check your connection and try again.'
+              else playbackStopped.value = true
+              abort.abort()
+              player.value?.destroy?.()
+            },
+            position: () => player.value?.getCurrentTime?.() ?? 0,
+            onRemaining: seconds => { remainingSeconds.value = seconds },
+          })
+          if (!await reporter.connect()) throw new Error(playbackError.value ?? 'Playback could not be authorized')
         },
         () => {
-          if (disposed) throw new Error('Playback page changed')
+          if (disposed || abort.signal.aborted) throw new Error('Playback page changed')
           if (authorization.playerKind === 'native') return Promise.resolve(createNativePlayer('youtube-player', {
             signal: abort.signal, resumeAt: authorization.resumeAt,
             resolveUrl: async () => {
@@ -96,7 +112,7 @@ export function useWatchPlayback(videoId: string) {
                 void apiFetch(`${path}/${encodeURIComponent(media.cleanupId)}/stop`, { method: 'POST', keepalive: true }).catch(() => undefined)
               } }
             },
-            onStateChange: state => { playbackState = state; reporter?.setState(state) },
+            onStateChange: state => { reporter?.setState(state) },
             onError: error => { reporter?.finish(); playbackError.value = error.message },
           }))
           return createYouTubePlayer('youtube-player', {
@@ -106,7 +122,6 @@ export function useWatchPlayback(videoId: string) {
               if (authorization.resumeAt >= 30) readyPlayer.seekTo?.(authorization.resumeAt, true)
             },
             onStateChange: (state: PlaybackState) => {
-              playbackState = state
               reporter?.setState(state)
             },
             onError: error => { reporter?.finish(); playbackError.value = error.message },
@@ -117,25 +132,12 @@ export function useWatchPlayback(videoId: string) {
         player.value.destroy?.()
         return
       }
-      reporter = createPlaybackReporter({
-        initialRemainingSeconds: authorization.remainingSeconds,
-        initialLeaseDeadline: Number.isFinite(Date.parse(authorization.leaseExpiresAt)) ? Date.parse(authorization.leaseExpiresAt) : undefined,
-        heartbeat: (sequence, state, positionSeconds, keepalive) => apiFetch(`/api/child/playback-authorizations/${authorization.sessionId}/heartbeats`, { method: 'POST', keepalive, body: { sequence, state, positionSeconds } }),
-        pause: () => player.value?.pauseVideo?.(),
-        onBlocked: () => {
-          playbackStopped.value = true
-          player.value?.destroy?.()
-        },
-        position: () => player.value?.getCurrentTime?.() ?? 0,
-        onRemaining: seconds => { remainingSeconds.value = seconds },
-      })
-      // Autoplay can report its first state before the player promise resolves.
-      reporter.setState(playbackState)
     } catch (error) {
+      reporter?.finish()
       if (disposed) return
       if (error instanceof ApiError && error.response.code === 'episode-claim-required') {
         claimPrompt.value = error.response.claim as EpisodeClaimPrompt
-      } else playbackError.value = error instanceof Error ? error.message : 'Playback could not be authorized'
+      } else playbackError.value ??= error instanceof Error ? error.message : 'Playback could not be authorized'
     }
   }
 

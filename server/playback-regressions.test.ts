@@ -26,13 +26,15 @@ async function fixture() {
 }
 
 test('the reporter stops on takeover denial even when the server returns an older sequence', async t => {
-  const { authorize, heartbeat } = await fixture()
+  const { authorize, heartbeat, clock } = await fixture()
   const active = await authorize()
   let paused = 0
   let blocked = 0
   let response!: Promise<{ sequence: number; remainingSeconds: number; authorized: boolean }>
   const reporter = createPlaybackReporter({
     initialRemainingSeconds: active.remainingSeconds,
+    initialLeaseDeadline: Date.parse(active.leaseExpiresAt),
+    now: () => clock.getTime(),
     document: { hidden: false, pictureInPictureElement: null, addEventListener() {}, removeEventListener() {} },
     pause: () => { paused++ },
     onBlocked: () => { blocked++ },
@@ -69,6 +71,31 @@ test('switching videos must settle the previous active interval', async () => {
  await authorize()
  const used = Number(d1.sqlite.prepare('SELECT COALESCE(SUM(restricted_seconds), 0) AS seconds FROM daily_usage_summaries').get()!.seconds)
  assert.equal(used, 896, `896 seconds played in 64 sessions; recorded ${used} seconds`)
+})
+
+test('the local allowance deadline stops playback and settles the last second before the next poll', async t => {
+  const { d1, clock, authorize, heartbeat } = await fixture()
+  d1.sqlite.exec("INSERT INTO daily_usage_summaries (child_id, viewing_day, restricted_seconds) VALUES (10, '2026-08-17', 899)")
+  const active = await authorize()
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
+  let blocked = 0
+  const reporter = createPlaybackReporter({
+    initialRemainingSeconds: active.remainingSeconds,
+    initialLeaseDeadline: Date.parse(active.leaseExpiresAt), now: () => clock.getTime(),
+    document: { hidden: false, pictureInPictureElement: null, addEventListener() {}, removeEventListener() {} },
+    pause() {}, onRemaining() {}, onBlocked: () => { blocked++ },
+    heartbeat: (sequence, state) => heartbeat(active.sessionId, sequence, state).then(response => response.json()),
+  })
+  t.after(() => reporter.stop())
+  assert.equal(await reporter.connect(), true)
+  reporter.setState('playing')
+  await new Promise(resolve => setImmediate(resolve))
+  clock.setTime(clock.getTime() + 1000)
+  t.mock.timers.tick(1000)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(blocked, 1)
+  assert.equal(d1.sqlite.prepare('SELECT restricted_seconds FROM daily_usage_summaries').get()!.restricted_seconds, 900)
+  assert.equal(await authorize(), undefined)
 })
 
 test('takeover settles the final seconds before deciding whether to authorize', async () => {
