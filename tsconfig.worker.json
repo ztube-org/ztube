@@ -6,8 +6,13 @@
     "allowImportingTsExtensions": true,
     "strict": true,
     "skipLibCheck": true,
-    "types": ["./worker-configuration.d.ts"]
+    "types": ["./.cloudflare/types/index.d.ts", "node"]
   },
-  "include": ["server/**/*.ts", "worker-configuration.d.ts"],
+  "include": [
+    "server/**/*.ts",
+    ".cloudflare/types/**/*.d.ts",
+    "cloudflare.config.ts",
+    "scripts/cloudflare-*.ts"
+  ],
   "exclude": ["server/**/*.test.ts", "server/test-support/**"]
 }

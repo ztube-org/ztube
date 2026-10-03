@@ -32,6 +32,6 @@ Up to 200 explicitly selected episodes per Playlist. New files never enter Playl
 
 Migration `0019_webdav_endpoint.sql` adds a nullable endpoint column. Existing Providers default to their previous origin plus `/dav/`; existing account credentials, custom headers, root paths, Provider/media IDs, shared Playlists and Child approvals remain intact. Legacy session tokens are no longer read, refreshed or used. The previous OpenList-specific directory-password setting is not part of WebDAV; directory access follows the WebDAV account's permissions.
 
-For self-hosted installations, set `PROVIDER_ENCRYPTION_KEY` with `npx wrangler secret put PROVIDER_ENCRYPTION_KEY` using a securely retained random 32-byte base64 key. Use a separate key in ignored `.dev.vars` for local development. YouTube works without the Provider encryption key.
+For self-hosted installations, set `PROVIDER_ENCRYPTION_KEY` in ignored `.secrets.production.json` and deploy it with `npm run deploy -- --secrets-file .secrets.production.json` using a securely retained random 32-byte base64 key. Use a separate key in ignored `.dev.vars` for local development. YouTube works without the Provider encryption key.
 
 Protocol references: [WebDAV RFC 4918](https://www.rfc-editor.org/rfc/rfc4918), [OpenList WebDAV authentication](https://github.com/OpenListTeam/OpenList/blob/main/server/webdav.go), [OpenList redirect handling](https://github.com/OpenListTeam/OpenList/blob/main/server/webdav/webdav.go). Actual storage/account settings determine whether WebDAV returns a direct URL.

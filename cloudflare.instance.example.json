@@ -1,0 +1,9 @@
+{
+  "accountId": "",
+  "workerName": "ztube",
+  "domain": "ztube.example.com",
+  "databaseId": "00000000-0000-0000-0000-000000000000",
+  "databaseName": "ztube-db",
+  "accessIssuer": "https://your-team.cloudflareaccess.com",
+  "accessAud": "REPLACE_WITH_YOUR_ACCESS_APPLICATION_AUD"
+}

@@ -60,8 +60,8 @@ git clone https://github.com/ztube-org/ztube.git
 cd ztube
 npm ci
 npx playwright install chromium
-npx wrangler login
-npx wrangler d1 create ztube-db
+npx cf auth login
+npx cf d1 create --name ztube-db
 ```
 
 On Linux, Playwright may also request system packages; follow its output or run
@@ -89,32 +89,43 @@ Access JWT signatures, issuer, audience and expiry on every API request.
 
 ### 3. Edit the deployment configuration
 
-The checked-in [`wrangler.jsonc`](wrangler.jsonc) contains **examples only**.
-Replace these fields with your own values:
+[`cloudflare.config.ts`](cloudflare.config.ts) is the deployment configuration.
+The project pins `cf` beta and the Cloudflare Vite plugin beta; builds and deploys
+use `cf`, without Wrangler. Create your ignored instance settings:
+
+```sh
+cp cloudflare.instance.example.json cloudflare.instance.json
+```
+
+Edit `cloudflare.instance.json` with your own values:
 
 | Field | Value to use |
 | --- | --- |
-| `name` | Your Worker name, e.g. `ztube` |
-| `routes[0].pattern` | The same hostname protected by Access |
-| `d1_databases[0].database_name` | The name used in `d1 create` |
-| `d1_databases[0].database_id` | The UUID returned by `d1 create`; replace the all-zero placeholder |
-| `vars.ACCESS_ISSUER` | Your Zero Trust team URL, including `https://` |
-| `vars.ACCESS_AUD` | Your Access application's AUD tag |
+| `accountId` | Your Cloudflare account ID |
+| `workerName` | Your Worker name, e.g. `ztube` |
+| `domain` | The hostname protected by Access |
+| `databaseName` | The name used in `cf d1 create` |
+| `databaseId` | The UUID returned by `cf d1 create` |
+| `accessIssuer` | Your Zero Trust team URL, including `https://` |
+| `accessAud` | Your Access application's AUD tag |
 
-Keep `AUTH_MODE` set to `access`, and keep `workers_dev` and `preview_urls`
-disabled. If you have multiple Cloudflare accounts, select the intended one at
-login or add its `account_id`. Do not put API keys or passwords in this file.
+Keep `AUTH_MODE` set to `access`, and keep `workersDev` and `previewUrls`
+disabled in `cloudflare.config.ts`. Do not put secrets in either configuration file.
+Without an instance file, local development and CI use the example values;
+production scripts require a configured instance.
 
 ```sh
 npm run cf:typegen
 npm run db:migrate:remote
-npm run deploy
+npm run deploy -- --dry-run
 ```
 
-Apply **all** migrations before deploying. `npm run deploy` runs the server and
-browser tests, lint, type checks and production build before uploading the Worker.
-The first deployment creates the Worker and its custom domain. Wait for the domain
-certificate to become active if Cloudflare reports it as pending.
+Apply **all** migrations before deploying. The database scripts use the configured
+D1 ID and the existing `d1_migrations` table. `npm run deploy` runs the server and
+browser tests, lint, type generation and checks, then deploys with `cf`.
+`--dry-run` builds and validates without uploading. Set secrets for the first
+real deployment as described below. Cloudflare may need time to activate the
+custom domain's certificate.
 
 The YouTube sync heartbeat runs every 30 minutes, processes at most one source
 per run, and refreshes completed sources only after 24 hours. Channels, YouTube
@@ -136,28 +147,35 @@ cleanup still run separately at minutes 5 and 35, without refreshing libraries.
 
 ### 4. Set your Worker secrets
 
-Set the comma-separated list of Admin emails, then the YouTube key if you use it.
-Wrangler prompts for each value:
+Create an ignored `.secrets.production.json` file containing your secret values:
 
-```sh
-npx wrangler secret put ADMIN_EMAILS
-npx wrangler secret put YOUTUBE_API_KEY
+```json
+{
+  "ADMIN_EMAILS": "parent1@example.com,parent2@example.com",
+  "YOUTUBE_API_KEY": "",
+  "PROVIDER_ENCRYPTION_KEY": ""
+}
 ```
 
-For example, `ADMIN_EMAILS` can be `parent1@example.com,parent2@example.com`.
-Email matching is case-insensitive. Secret updates create a deployed Worker
-version; you do not need to paste secrets into source files or rebuild the UI.
-
-For **Jellyfin**, also generate a random encryption key:
+Set the YouTube key if you use YouTube. For Jellyfin or WebDAV, generate a random
+32-byte base64 encryption key and put it in `PROVIDER_ENCRYPTION_KEY`:
 
 ```sh
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
-npx wrangler secret put PROVIDER_ENCRYPTION_KEY
 ```
 
-Paste the generated value at the prompt and save it in a password manager.
-It encrypts Jellyfin credentials in D1; **keep it with your backups**. Replacing
-it makes existing connections unreadable. YouTube-only instances do not need it.
+Save the encryption key in a password manager and **keep it with your backups**.
+Replacing it makes existing connections unreadable. Leave unused service keys
+empty. Deploy the code and secrets together:
+
+```sh
+npm run deploy -- --secrets-file .secrets.production.json
+```
+
+`ADMIN_EMAILS` is comma-separated and case-insensitive. For future deployments,
+`npm run deploy` retains the existing Worker secrets. Pass `--secrets-file` when
+you need to update them. Never commit this file or put secret values in command
+arguments.
 
 ### 5. Sign in and add content
 
@@ -207,8 +225,8 @@ for more details.
 
 ## Run locally
 
-No Cloudflare account is needed for local D1 development. Use the example
-`wrangler.jsonc` unchanged and create a local secrets file:
+No Cloudflare account is needed for local D1 development. Leave the instance
+example unchanged and create a local secrets file:
 
 ```sh
 npm ci
@@ -216,6 +234,9 @@ cp .dev.vars.example .dev.vars
 npm run db:migrate:local
 npm run dev
 ```
+
+Local state lives in ignored `.cloudflare/state/`; previous `.wrangler/state/`
+files are left untouched and are not automatically imported.
 
 Open `http://localhost:5173`. The example signs in as a local Admin. Change
 `LOCAL_DEV_USER_EMAIL` in `.dev.vars` to an email outside `ADMIN_EMAILS` to test a

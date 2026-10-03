@@ -7,7 +7,7 @@ import { chromium, expect } from '@playwright/test'
 import sharp from 'sharp'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const client = resolve(root, 'dist/client')
+const client = resolve(root, '.cloudflare/output/v0/workers/default/assets')
 const output = resolve(root, 'docs/screenshots')
 const origin = 'http://127.0.0.1:5198'
 const day = '2026-09-18'

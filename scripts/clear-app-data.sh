@@ -5,11 +5,9 @@ target="${1:-}"
 case "$target" in
   --local)
     target_label="LOCAL"
-    wrangler_target="--local"
     ;;
   --remote)
     target_label="REMOTE PRODUCTION"
-    wrangler_target="--remote"
     ;;
   *)
     echo "Usage: npm run db:clear -- --local|--remote" >&2
@@ -26,4 +24,4 @@ if [[ "$answer" != "$confirmation" ]]; then
   exit 1
 fi
 
-npx wrangler d1 execute DB "$wrangler_target" --file scripts/clear-app-data.sql
+node scripts/cloudflare-db.ts clear "$target"

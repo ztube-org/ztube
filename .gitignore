@@ -44,3 +44,8 @@ backups/
 # Browser test artifacts
 playwright-report/
 test-results/
+
+# cf build output and private instance settings
+.cloudflare/
+cloudflare.instance.json
+.secrets.production.json

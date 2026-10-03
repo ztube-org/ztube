@@ -7,20 +7,22 @@ This guide covers verification, iPad setup and maintaining an existing instance.
 
 | Setting | Where | Purpose |
 | --- | --- | --- |
-| `AUTH_MODE=access` | `wrangler.jsonc` vars | Production authentication |
-| `ACCESS_ISSUER` | `wrangler.jsonc` vars | `https://<team>.cloudflareaccess.com` |
-| `ACCESS_AUD` | `wrangler.jsonc` vars | Access application's Audience tag |
+| `AUTH_MODE=access` | `cloudflare.config.ts` bindings | Production authentication |
+| `ACCESS_ISSUER` | `cloudflare.instance.json` → `accessIssuer` | `https://<team>.cloudflareaccess.com` |
+| `ACCESS_AUD` | `cloudflare.instance.json` → `accessAud` | Access application's Audience tag |
 | `ADMIN_EMAILS` | Worker secret | Comma-separated Admin emails; also allow them in Access |
 | `YOUTUBE_API_KEY` | Worker secret | Required for YouTube import and refresh |
 | `PROVIDER_ENCRYPTION_KEY` | Worker secret | Base64-encoded random 32-byte key for WebDAV/Jellyfin credentials |
 | `AUTH_MODE=local`, `LOCAL_DEV_USER_EMAIL` | Ignored `.dev.vars` only | Loopback development identity |
 
-Use `npx wrangler secret put NAME` to update a Worker secret. The Access issuer
-and audience are identifiers, not credentials. ZTube fails closed when Access
+To update secrets, edit ignored `.secrets.production.json` and run
+`npm run deploy -- --secrets-file .secrets.production.json`. Deployments without
+that option retain existing secrets. The Access issuer and audience are identifiers,
+not credentials. ZTube fails closed when Access
 verification is missing or invalid; a client-supplied email header is insufficient.
 
-Create Access protection before deploying the custom domain. Keep `workers_dev`
-and `preview_urls` disabled, and protect any additional hostname before adding it.
+Create Access protection before deploying the custom domain. Keep `workersDev`
+and `previewUrls` disabled, and protect any additional hostname before adding it.
 The Cloudflare references are [Access applications][access], [JWT validation][jwt],
 [D1 setup][d1] and [Worker custom domains][domains].
 
@@ -82,12 +84,11 @@ Episode Unlocks, usage and viewing records remain private to each Child.
 
 ## Backup
 
-Export D1 before upgrades. The ignored `backups/` directory avoids accidental commits:
-
-```sh
-mkdir -p backups
-npx wrangler d1 export DB --remote --output backups/ztube-backup.sql
-```
+Export D1 from the Cloudflare dashboard before upgrades and save the SQL file in
+ignored `backups/`. The cf beta currently has no equivalent to the old SQL export
+command. You can also inspect D1 Time Travel bookmarks with
+`npx cf d1 time-travel get-bookmark <DATABASE_ID>`; a bookmark is not an independent
+backup.
 
 Keep an encrypted copy outside this checkout. Exports contain emails, viewing
 records and encrypted Provider credentials. Store `PROVIDER_ENCRYPTION_KEY`
@@ -96,9 +97,9 @@ credentials. Preserve your Worker configuration and other secrets as well.
 
 ## Upgrade
 
-Preserve your own configuration values before updating, because `wrangler.jsonc`
-is a tracked template. When Git reports changes to it, merge the updated template
-with your saved deployment values; do not replace those values with examples.
+Instance values live in ignored `cloudflare.instance.json`; keep a private backup.
+Updates to tracked `cloudflare.config.ts` do not replace those values. Review any
+new fields in `cloudflare.instance.example.json` when upgrading.
 
 ```sh
 git pull --ff-only
@@ -110,8 +111,9 @@ npm run deploy
 ```
 
 Apply every pending migration. Normal migrations and deployment preserve data.
-`npx wrangler versions list` lists Worker versions; `npx wrangler rollback`
-rolls back code only, not D1 schema or data. Check schema compatibility before
+`npx cf workers versions list` lists Worker versions. Roll back a deployment
+from the Worker dashboard; this changes code only, not D1 schema or data.
+Check schema compatibility before
 rolling back. Restore backups to a separate database first when testing recovery.
 
 ## Deliberate database reset
@@ -134,7 +136,7 @@ Back up first and confirm the selected account/database before a remote reset.
 | Video is missing | Check duration, embeddability, approval and supported codecs. |
 | Provider credentials cannot be decrypted | Restore the original encryption key, or deliberately recreate the connection with new credentials. |
 | Database table/column error | Apply all migrations to the database in this checkout's config. |
-| Type generation check fails | Run `npm run cf:typegen` after configuration or Wrangler changes. |
+| Type generation check fails | Run `npm run cf:typegen` after configuration or cf changes. |
 | Chromium cannot launch | Run Playwright's browser installation and, on Linux, install its required system libraries. |
 | Jellyfin HLS fails but MP4 works | Check browser-to-Jellyfin HTTPS/CORS and Jellyfin playback/remux permissions; see [Jellyfin setup](jellyfin.md). |
 
