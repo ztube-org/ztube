@@ -12,7 +12,7 @@ This guide covers verification, iPad setup and maintaining an existing instance.
 | `ACCESS_AUD` | `cloudflare.instance.json` → `accessAud` | Access application's Audience tag |
 | `ADMIN_EMAILS` | Worker secret | Comma-separated Admin emails; also allow them in Access |
 | `YOUTUBE_API_KEY` | Worker secret | Required for YouTube import and refresh |
-| `PROVIDER_ENCRYPTION_KEY` | Worker secret | Base64-encoded random 32-byte key for WebDAV/Jellyfin credentials |
+| `PROVIDER_ENCRYPTION_KEY` | Worker secret | Base64-encoded random 32-byte key for Jellyfin credentials |
 | `AUTH_MODE=local`, `LOCAL_DEV_USER_EMAIL` | Ignored `.dev.vars` only | Loopback development identity |
 
 To update secrets, edit ignored `.secrets.production.json` and run
@@ -91,7 +91,7 @@ command. You can also inspect D1 Time Travel bookmarks with
 backup.
 
 Keep an encrypted copy outside this checkout. Exports contain emails, viewing
-records and encrypted Provider credentials. Store `PROVIDER_ENCRYPTION_KEY`
+records and encrypted Jellyfin credentials. Store `PROVIDER_ENCRYPTION_KEY`
 separately in a password manager; a database backup alone cannot restore those
 credentials. Preserve your Worker configuration and other secrets as well.
 
@@ -110,7 +110,9 @@ npm run db:migrate:remote
 npm run deploy
 ```
 
-Apply every pending migration. Normal migrations and deployment preserve data.
+Apply every pending migration. Migration `0029` removes saved WebDAV connections
+and archived WebDAV Playlists. Back up D1 before applying it and deploy the
+matching Worker during the same maintenance window.
 `npx cf workers versions list` lists Worker versions. Roll back a deployment
 from the Worker dashboard; this changes code only, not D1 schema or data.
 Check schema compatibility before
@@ -134,7 +136,7 @@ Back up first and confirm the selected account/database before a remote reset.
 | Admin lands in the viewer | Signed-in email must be in `ADMIN_EMAILS`; update that Worker secret. |
 | YouTube import fails | Verify API enablement, key restrictions and quota; browser-referrer restrictions are unsuitable. |
 | Video is missing | Check duration, embeddability, approval and supported codecs. |
-| Provider credentials cannot be decrypted | Restore the original encryption key, or deliberately recreate the connection with new credentials. |
+| Jellyfin credentials cannot be decrypted | Restore the original encryption key, or deliberately recreate the connection with new credentials. |
 | Database table/column error | Apply all migrations to the database in this checkout's config. |
 | Type generation check fails | Run `npm run cf:typegen` after configuration or cf changes. |
 | Chromium cannot launch | Run Playwright's browser installation and, on Linux, install its required system libraries. |

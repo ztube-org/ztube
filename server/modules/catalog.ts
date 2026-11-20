@@ -66,11 +66,7 @@ function approvedCatalog(childId: number, videoIds?: string[]) {
         row_number() OVER (PARTITION BY m.video_id ORDER BY m.priority DESC, m.source_id) AS metadata_rank
       FROM matches m
       LEFT JOIN video_content_rules o ON o.child_id = ${childId} AND o.video_id = m.video_id
-      WHERE (m.video_id NOT LIKE 'ol:%' OR EXISTS (
-        SELECT 1 FROM provider_media pm JOIN media_providers p ON p.id = pm.provider_id
-        WHERE pm.video_id = m.video_id AND p.enabled = 1
-          AND (p.root_path = '/' OR pm.path = p.root_path OR substr(pm.path, 1, length(p.root_path) + 1) = p.root_path || '/')
-      )) AND (m.video_id NOT LIKE 'jf:%' OR EXISTS (
+      WHERE (m.video_id NOT LIKE 'jf:%' OR EXISTS (
         SELECT 1 FROM jellyfin_media jm JOIN jellyfin_servers js ON js.id = jm.server_id
         WHERE jm.video_id = m.video_id AND js.enabled = 1
       ))

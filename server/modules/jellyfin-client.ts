@@ -2,7 +2,7 @@ import { playbackReads } from '../database/playback-reads.ts'
 import { database } from '../database/client.ts'
 import { HTTPException } from 'hono/http-exception'
 import * as schema from '../database/schema.ts'
-import { unseal } from './provider-config.ts'
+import { unseal } from './jellyfin-config.ts'
 
 export type JellyfinServer = typeof schema.jellyfinServers.$inferSelect
 export type JellyfinSource = {

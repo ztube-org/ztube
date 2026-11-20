@@ -17,9 +17,8 @@ from `ADMIN_EMAILS`. An unsigned email header does not establish identity.
 Local identity bypass is restricted to loopback hosts and is for development only.
 Keep Worker preview URLs and `workers.dev` disabled.
 
-All Admins manage all Children and Provider connections. This is a private family
-application, not an isolated multi-tenant hosting service. Configure Providers only
-for upstream services you trust. HTTPS hostname checks do not establish DNS-level
+All Admins manage all Children and Jellyfin connections. This is a private family
+application, not an isolated multi-tenant hosting service. Connect only to Jellyfin servers you trust. HTTPS hostname checks do not establish DNS-level
 network isolation or prove that a destination resolves to a public IP.
 
 ## Playback boundaries
@@ -28,10 +27,6 @@ ZTube authorizes approved content and meters its player through renewable playba
 leases and heartbeats. It does not provide DRM or enforce controls in other
 applications. A modified client or copied media URL can bypass the player; use
 device controls when that boundary matters.
-
-WebDAV credentials remain on the Worker. Its browser playback URLs must be readable
-without those credentials; signed media URLs are bearer links that can remain
-usable after ZTube authorization expires.
 
 Jellyfin has three distinct behaviors:
 
@@ -56,7 +51,7 @@ do not trust with those credentials. See [Jellyfin setup](docs/jellyfin.md).
 - Admin-visible Viewing Events identify videos and charged Time Pools for 30 days.
 - Continue Watching retains up to ten unfinished videos after at least 30 seconds
   of playback; completion removes progress. This is not completed watch history.
-- WebDAV passwords, custom authentication headers and Jellyfin API keys are
+- Jellyfin API keys are
   AES-GCM encrypted in D1. The encryption key is a separate Worker secret.
 - Scheduled cleanup and request-time filtering implement retention; backups may
   retain older records until you delete them under your own backup policy.
@@ -64,7 +59,7 @@ do not trust with those credentials. See [Jellyfin setup](docs/jellyfin.md).
 Profile deletion is not currently exposed as a self-service UI/API. The deliberate
 application reset removes all profiles and application data. Operators needing
 selective deletion must manage it with appropriate database backups and care.
-Provider services, YouTube and Cloudflare have their own logs and privacy policies.
+Jellyfin servers, YouTube and Cloudflare have their own logs and privacy policies.
 
 ## Keeping a public checkout clean
 

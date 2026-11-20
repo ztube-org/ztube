@@ -196,37 +196,13 @@ test('unlocks survive midnight and playback continues against the new day’s li
   assert.equal(f.count(), 0)
 })
 
-test('claims do not override viewing allowances, approval revocation or a disabled WebDAV Provider', async () => {
+test('claims do not override viewing allowances or approval revocation', async () => {
   const f = await fixture()
   await f.claim('ep1')
   f.d1.sqlite.exec('UPDATE child_time_settings SET cartoon_allowance_minutes = 0 WHERE child_id = 1')
   assert.equal((await f.authorize('ep1')).status, 403)
   f.d1.sqlite.exec("DELETE FROM allowed_videos WHERE video_id = 'ep1'; DELETE FROM allowed_playlists WHERE child_id = 1")
   assert.equal((await f.authorize('ep1')).status, 403)
-  f.d1.sqlite.exec(`
-    INSERT INTO media_providers (id, name, url, credentials, enabled) VALUES ('dav', 'DAV', 'https://dav.example', 'sealed', 0);
-    INSERT INTO provider_media (video_id, provider_id, path) VALUES ('ol:episode', 'dav', '/episode.mp4');
-    INSERT INTO allowed_playlists (id, child_id, playlist_id, playlist_title, cartoon_pool) VALUES (12, 1, 'webdav', 'WebDAV', 1);
-    INSERT INTO playlist_videos (playlist_id, video_id, video_title, duration) VALUES ('webdav', 'ol:episode', 'Episode', 600);
-  `)
-  assert.equal((await f.claim('ol:episode')).status, 403)
-})
-
-test('WebDAV media resolution and existing playback require a claim when the Admin adds a Playlist to the pool', async () => {
-  const f = await fixture()
-  f.d1.sqlite.exec(`
-    INSERT INTO media_providers (id, name, url, credentials, enabled) VALUES ('dav', 'DAV', 'https://dav.example', 'sealed', 1);
-    INSERT INTO provider_media (video_id, provider_id, path) VALUES ('ol:episode', 'dav', '/episode.mp4');
-    INSERT INTO allowed_playlists (id, child_id, playlist_id, playlist_title) VALUES (12, 1, 'webdav', 'WebDAV');
-    INSERT INTO playlist_videos (playlist_id, video_id, video_title, duration) VALUES ('webdav', 'ol:episode', 'Episode', 600);
-  `)
-  const { authorization } = await (await f.authorize('ol:episode')).json() as any
-  f.d1.sqlite.exec('UPDATE allowed_playlists SET cartoon_pool = 1 WHERE id = 12')
-  const media = await f.request(`/api/child/playback-authorizations/${authorization.sessionId}/media`)
-  assert.equal(media.status, 403)
-  assert.match((await media.json() as any).message, /no longer approved|Claim this episode/)
-  const heartbeat = await f.request(`/api/child/playback-authorizations/${authorization.sessionId}/heartbeats`, { sequence: 1, state: 'playing' })
-  assert.equal((await heartbeat.json() as any).authorized, false)
 })
 
 test('Cartoon Time is independent of ordinary and exempt balances, counts replays, and stops at its own cap', async () => {

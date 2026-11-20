@@ -1,6 +1,6 @@
 import { HTTPException } from 'hono/http-exception'
 import { getJellyfinServer, JellyfinHttpError, jellyfinId, jellyfinJson, jellyfinRequest, type JellyfinServer, type JellyfinSource } from './jellyfin-client.ts'
-import { unseal } from './provider-config.ts'
+import { unseal } from './jellyfin-config.ts'
 
 export type RemuxSession = { id: string; serverId: string; playSessionId: string; deviceId: string }
 const unsupported = () => new HTTPException(415, { message: 'This browser cannot play this episode’s video or supported audio output. Video transcoding is disabled. Try Safari on an Apple device, or use a compatible H.264/AAC version.' })

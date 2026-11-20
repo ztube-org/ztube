@@ -6,7 +6,7 @@ import { and, eq } from 'drizzle-orm'
 import * as v from 'valibot'
 import * as schema from '../database/schema.ts'
 import { requireRole, type AppEnv } from './identity.ts'
-import { httpsUrl, seal } from './provider-config.ts'
+import { httpsUrl, seal } from './jellyfin-config.ts'
 import { approvedVideoMetadata } from './catalog.ts'
 import { playableJellyfinSource, getJellyfinServer, jellyfinId, jellyfinImage, jellyfinItem, jellyfinItems, jellyfinJson, presentJellyfinItem, type JellyfinItem, type JellyfinServer } from './jellyfin-client.ts'
 

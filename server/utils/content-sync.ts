@@ -46,8 +46,8 @@ export async function syncApprovedContent(env: Env, options: { target?: SyncTarg
   const unique = new Map<string, Source>()
   const sources: Source[] = [
     ...channels.map(item => ({ kind: 'channel' as const, externalId: item.channelId, lastFetchedAt: item.lastFetchedAt, nextPageToken: item.nextPageToken })),
-    ...playlists.filter(item => !item.playlistId.startsWith('pl:')).map(item => ({ kind: 'playlist' as const, externalId: item.playlistId, lastFetchedAt: item.lastFetchedAt, nextPageToken: item.nextPageToken })),
-    ...videos.filter(item => !/^(ol|jf):/.test(item.videoId)).map(item => ({ kind: 'video' as const, externalId: item.videoId, lastFetchedAt: item.lastFetchedAt, nextPageToken: null })),
+    ...playlists.filter(item => !item.playlistId.startsWith('pl:jf:')).map(item => ({ kind: 'playlist' as const, externalId: item.playlistId, lastFetchedAt: item.lastFetchedAt, nextPageToken: item.nextPageToken })),
+    ...videos.filter(item => !item.videoId.startsWith('jf:')).map(item => ({ kind: 'video' as const, externalId: item.videoId, lastFetchedAt: item.lastFetchedAt, nextPageToken: null })),
   ]
   for (const source of sources) {
     const key = `${source.kind}:${source.externalId}`

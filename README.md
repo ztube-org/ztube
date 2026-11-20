@@ -157,7 +157,7 @@ Create an ignored `.secrets.production.json` file containing your secret values:
 }
 ```
 
-Set the YouTube key if you use YouTube. For Jellyfin or WebDAV, generate a random
+Set the YouTube key if you use YouTube. For Jellyfin, generate a random
 32-byte base64 encryption key and put it in `PROVIDER_ENCRYPTION_KEY`:
 
 ```sh

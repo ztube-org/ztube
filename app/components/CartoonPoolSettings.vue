@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { EpisodeClaimStatus, TimePoolStatus } from '../../src/domain'
 import { apiFetch, ApiError, useApi } from '../../src/api'
 
-const props = defineProps<{ childId: number; pools: TimePoolStatus[]; playlists: { id: number; playlistTitle: string; playlistId?: string }[] }>()
-const visiblePlaylists = computed(() => props.playlists.filter(p => !p.playlistId?.startsWith('pl:') || p.playlistId.startsWith('pl:jf:')))
+const props = defineProps<{ childId: number; pools: TimePoolStatus[]; playlists: { id: number; playlistTitle: string }[] }>()
 type Settings = { dailyLimit: number; timePoolId: string; playlistIds: number[] }
 const { data, error: loadError, refresh } = useApi<Settings>(`/api/admin/children/${props.childId}/cartoon-pool`)
 const creditPath = `/api/admin/children/${props.childId}/unlock-credits`
@@ -82,9 +81,9 @@ async function save() {
         <select v-model="timePoolId" :disabled="saving || !pools.length" required aria-label="Time pool for the cartoon library" class="zt-surface min-h-11 rounded-lg border px-3"><option v-for="pool in pools" :key="pool.id" :value="pool.id">{{ pool.name }}</option></select>
       </label>
       <fieldset :disabled="saving"><legend class="text-sm font-semibold">Playlists in the pool</legend>
-        <p v-if="!visiblePlaylists.length" class="mt-2 text-sm text-[var(--zt-muted)]">First import a Jellyfin series or approve a YouTube Playlist for this Child.</p>
+        <p v-if="!playlists.length" class="mt-2 text-sm text-[var(--zt-muted)]">First import a Jellyfin series or approve a YouTube Playlist for this Child.</p>
         <div class="grid gap-x-4 sm:grid-cols-2">
-          <label v-for="playlist in visiblePlaylists" :key="playlist.id" class="flex min-h-11 cursor-pointer items-center gap-3 text-sm"><input v-model="playlistIds" type="checkbox" :value="playlist.id" class="h-5 w-5 shrink-0 accent-[var(--zt-blue)]" />{{ playlist.playlistTitle }}</label>
+          <label v-for="playlist in playlists" :key="playlist.id" class="flex min-h-11 cursor-pointer items-center gap-3 text-sm"><input v-model="playlistIds" type="checkbox" :value="playlist.id" class="h-5 w-5 shrink-0 accent-[var(--zt-blue)]" />{{ playlist.playlistTitle }}</label>
         </div>
       </fieldset>
       <p class="text-sm text-[var(--zt-muted)]">One credit permanently unlocks one episode for this Child. Unused credits expire at local midnight. Unlocked episodes can be watched again without another credit; viewing still uses the selected time pool and requires Approved Content.</p>

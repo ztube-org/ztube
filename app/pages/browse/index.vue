@@ -20,8 +20,8 @@ const { status, error: statusError, refreshing, refresh: refreshStatus } = useVi
 const favorite = useFavorites(() => data.value?.favoriteVideoIds ?? [], ids => { if (data.value) data.value.favoriteVideoIds = ids })
 const { error: favoriteError, pending: favoritePending } = favorite
 const searching = computed(() => Boolean(contentSearch.value.trim() || selectedTag.value))
-const visibleVideo = (video: ApprovedVideo) => !video.videoId.startsWith('ol:') && !video.videoId.startsWith('jf:')
-const visiblePlaylists = computed(() => (data.value?.playlists ?? []).filter(item => !item.playlistId?.startsWith('pl:')))
+const visibleVideo = (video: ApprovedVideo) => !video.videoId.startsWith('jf:')
+const visiblePlaylists = computed(() => (data.value?.playlists ?? []).filter(item => !item.playlistId?.startsWith('pl:jf:')))
 const continuation = computed(() => (data.value?.continueWatching ?? []).filter(visibleVideo))
 const recommendations = computed(() => (data.value?.recommendations ?? []).filter(visibleVideo))
 const favorites = computed(() => (data.value?.favorites ?? []).filter(visibleVideo))
@@ -135,7 +135,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(debounce) })
       <h2 class="zt-section-title">Playlists</h2>
       <div class="zt-video-grid">
         <NuxtLink v-for="playlist in filteredPlaylists" :key="playlist.id" :to="`/browse/playlist/${playlist.id}`" class="zt-video-card">
-          <div class="zt-video-card__media"><MediaArtwork :src="playlist.playlistThumbnail" :title="playlist.playlistTitle" kind="playlist" /><span class="zt-duration">{{ playlist.playlistId?.startsWith('pl:jf:') ? 'Series' : 'Playlist' }}</span></div>
+          <div class="zt-video-card__media"><MediaArtwork :src="playlist.playlistThumbnail" :title="playlist.playlistTitle" kind="playlist" /><span class="zt-duration">Playlist</span></div>
           <p class="mt-2 font-semibold leading-5 line-clamp-2">{{ playlist.playlistTitle }}</p>
           <p v-if="!playlist.isAvailable" class="text-xs text-[var(--zt-warning)]">Tap to reload videos</p>
         </NuxtLink>

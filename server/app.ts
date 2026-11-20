@@ -3,7 +3,6 @@ import { syncJobs } from './modules/content-sync-store.ts'
 import { seriesNavigation } from './modules/series-navigation.ts'
 import { database } from './database/client.ts'
 import { registerJellyfinRoutes } from './modules/jellyfin.ts'
-import { registerProviderRoutes } from './modules/providers.ts'
 import { searchApprovedVideos } from './modules/content-search.ts'
 import { viewingEvents } from './modules/viewing-events.ts'
 import { registerPlaybackRoutes } from './modules/playback.ts'
@@ -489,7 +488,6 @@ export function createApp(dependencies: AppDependencies = {}) {
     return c.json({ favorite: false })
   })
 
-  registerProviderRoutes(app)
   registerPlaybackRoutes(app, now)
 
   app.get('/api/child/channel/:id/videos', async c => channelOrPlaylist(c, 'channel', now()))
@@ -635,7 +633,7 @@ async function channelOrPlaylist(c: ApiContext, kind: 'channel' | 'playlist', in
         thumbnail: item.playlistThumbnail, isAvailable: item.isAvailable, contentRule: item.contentRule, tags: item.tags,
       }))
   if (!source) throw new HTTPException(404, { message: `${kind} not found` })
-  const curated = source.externalId.startsWith('pl:')
+  const curated = source.externalId.startsWith('pl:jf:')
   const pageSize = curated ? 200 : 50
   const presentedSource = {
     curated,
@@ -651,7 +649,7 @@ async function channelOrPlaylist(c: ApiContext, kind: 'channel' | 'playlist', in
       if (sync.failed) throw new HTTPException(502, { message: 'Channel sync failed; automatic retry scheduled' })
     }
   }
-  if (kind === 'channel' || source.externalId.startsWith('pl:') || preview || (!refresh && !pageToken)) {
+  if (kind === 'channel' || curated || preview || (!refresh && !pageToken)) {
     const videos = (kind === 'channel'
       ? await db.query.channelVideos.findMany({ where: and(eq(schema.channelVideos.channelId, source.externalId), sql`instr(lower(${schema.channelVideos.videoTitle} || ' ' || coalesce(${schema.channelVideos.channelTitle}, '')), lower(${query})) > 0`, sql`(${schema.channelVideos.duration} IS NULL OR ${schema.channelVideos.duration} > 180)`), orderBy: (table, { asc }) => [asc(table.position), asc(table.videoId)], limit: 51, offset: page * 50 })
       : await db.query.playlistVideos.findMany({ where: and(eq(schema.playlistVideos.playlistId, source.externalId), sql`instr(lower(${schema.playlistVideos.videoTitle} || ' ' || coalesce(${schema.playlistVideos.channelTitle}, '')), lower(${query})) > 0`, sql`(${schema.playlistVideos.duration} IS NULL OR ${schema.playlistVideos.duration} > 180)`), orderBy: (table, { asc }) => [asc(table.position), asc(table.videoId)], limit: pageSize + 1, offset: page * pageSize })) as Array<typeof schema.channelVideos.$inferSelect | typeof schema.playlistVideos.$inferSelect>

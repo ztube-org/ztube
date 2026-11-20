@@ -24,7 +24,7 @@ test('Admin edits independent time pools, binds content and saves daily unlock c
     else if (path.endsWith('/content')) body = { child, channels: [
       { id: 1, channelId: 'stories', channelTitle: 'Weekend stories', isAvailable: true, contentRule: 'restricted', tags },
       { id: 2, channelId: 'science', channelTitle: 'Science for kids', isAvailable: true, contentRule: 'restricted', tags: ['Science', 'Learning'] },
-    ], playlists: [{ id: 10, playlistId: 'adventure', playlistTitle: 'Adventure cartoons', isAvailable: true }, { id: 11, playlistId: 'animals', playlistTitle: 'Animal cartoons', isAvailable: true }, { id: 12, playlistId: 'pl:legacy', playlistTitle: 'Hidden WebDAV series', isAvailable: true }], videos: [{ id: 13, videoId: 'ol:legacy', videoTitle: 'Hidden WebDAV video' }], videoRules: [] }
+    ], playlists: [{ id: 10, playlistId: 'adventure', playlistTitle: 'Adventure cartoons', isAvailable: true }, { id: 11, playlistId: 'animals', playlistTitle: 'Animal cartoons', isAvailable: true }, { id: 12, playlistId: 'pl:jf:import', playlistTitle: 'Imported series', isAvailable: true }], videos: [], videoRules: [] }
     else if (path.endsWith('/content/channel/1/tags')) {
       tags = route.request().postDataJSON().tags
       tagWrites++
@@ -70,7 +70,6 @@ test('Admin edits independent time pools, binds content and saves daily unlock c
   })
   await page.goto('/admin/child/1/manage')
   await expect(page.getByRole('form', { name: 'Cartoons time pool' })).toBeVisible()
-  await expect(page.getByText(/Hidden WebDAV/)).toHaveCount(0)
   await expect(page.locator('a[href="/admin/library"]')).toHaveCount(0)
   await page.screenshot({ path: testInfo.outputPath('child-settings-overview.png'), fullPage: true })
   await page.getByText('Unlock credits', { exact: true }).click()

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { IsolatedD1, migrate } from './test-support/d1.ts'
 import test from 'node:test'
+import { readFile, readdir } from 'node:fs/promises'
 import { createApp } from './app.ts'
 import { expirePlaybackSessions } from './utils/playback-retention.ts'
 
@@ -108,4 +109,54 @@ test('accounts cannot be manually created or deleted through Admin APIs', async 
   const { request } = await fixture()
   assert.equal((await request('/api/admin/children', 'POST', { email: 'manual@example.com' })).status, 404)
   assert.equal((await request('/api/admin/children/10', 'DELETE')).status, 404)
+})
+
+test('migration 0029 retires WebDAV content while preserving Jellyfin, YouTube and viewing history', async t => {
+  const d1 = new IsolatedD1()
+  t.after(() => d1.sqlite.close())
+  const directory = new URL('../migrations/', import.meta.url)
+  const retirement = '0029_drop_webdav_providers.sql'
+  for (const name of (await readdir(directory)).filter(name => name.endsWith('.sql') && name < retirement).sort()) {
+    d1.sqlite.exec(await readFile(new URL(name, directory), 'utf8'))
+  }
+  d1.sqlite.exec(`
+    INSERT INTO children (id, email) VALUES (1, 'migration@example.com');
+    INSERT INTO media_providers (id, name, url, credentials) VALUES ('retired', 'Retired', 'https://dav.example.com', 'sealed');
+    INSERT INTO provider_media (video_id, provider_id, path) VALUES ('ol:episode', 'retired', '/episode.mp4');
+    INSERT INTO jellyfin_servers (id, name, url, credentials) VALUES ('home', 'Jellyfin', 'https://jellyfin.example.com', 'sealed');
+    INSERT INTO curated_playlists (id, title) VALUES ('pl:archive', 'Archived'), ('pl:jf:series', 'Jellyfin');
+    INSERT INTO jellyfin_imports (playlist_id, server_id, item_id, last_synced_at) VALUES ('pl:jf:series', 'home', 'series', 10);
+    INSERT INTO jellyfin_media (video_id, server_id, item_id, media_source_id) VALUES ('jf:episode', 'home', 'episode', 'source');
+    INSERT INTO allowed_playlists (child_id, playlist_id, playlist_title, cartoon_pool) VALUES
+      (1, 'pl:archive', 'Archived', 1), (1, 'pl:jf:series', 'Jellyfin', 1), (1, 'PLyoutube', 'YouTube', 0);
+    INSERT INTO playlist_videos (playlist_id, video_id, video_title) VALUES
+      ('pl:archive', 'ol:episode', 'Archived episode'), ('pl:jf:series', 'jf:episode', 'Jellyfin episode'), ('PLyoutube', 'youtube', 'YouTube video');
+    INSERT INTO time_pool_bindings VALUES (1, 'playlist', 'pl:archive', 'pool:1:cartoon'), (1, 'playlist', 'pl:jf:series', 'pool:1:cartoon'), (1, 'video', 'ol:episode', 'pool:1:cartoon');
+    INSERT INTO favorite_videos (child_id, video_id) VALUES (1, 'ol:episode'), (1, 'jf:episode');
+    INSERT INTO playback_progress (child_id, video_id, position_seconds, duration, video_title) VALUES
+      (1, 'ol:episode', 90, 600, 'Archived episode'), (1, 'jf:episode', 90, 600, 'Jellyfin episode');
+    INSERT INTO playback_sessions (id, child_id, viewing_day, last_state, last_acknowledged_at, lease_expires_at, video_id)
+      VALUES ('old', 1, '2026-08-16', 'playing', 20, 50, 'ol:episode');
+    INSERT INTO viewing_events (session_id, child_id, video_id, video_title, usage_bucket, authorized_at, watched_seconds)
+      VALUES ('old', 1, 'ol:episode', 'Archived episode', 'cartoon', 10, 10);
+    INSERT INTO episode_claims (child_id, viewing_day, video_id, claimed_at) VALUES (1, '2026-08-16', 'ol:episode', 10);
+    INSERT INTO daily_usage_summaries (child_id, viewing_day, cartoon_seconds) VALUES (1, '2026-08-16', 10);
+  `)
+  d1.sqlite.exec(await readFile(new URL(retirement, directory), 'utf8'))
+
+  const values = (query: string) => d1.sqlite.prepare(query).all().map(row => Object.values(row)[0])
+  assert.deepEqual(values("SELECT name FROM sqlite_schema WHERE name IN ('provider_media', 'media_providers')"), [])
+  assert.deepEqual(values('SELECT id FROM curated_playlists'), ['pl:jf:series'])
+  assert.deepEqual(values('SELECT playlist_id FROM jellyfin_imports'), ['pl:jf:series'])
+  assert.deepEqual(values('SELECT playlist_id FROM allowed_playlists ORDER BY playlist_id'), ['PLyoutube', 'pl:jf:series'])
+  assert.deepEqual(values('SELECT video_id FROM playlist_videos ORDER BY video_id'), ['jf:episode', 'youtube'])
+  assert.deepEqual(values('SELECT content_id FROM time_pool_bindings'), ['pl:jf:series'])
+  assert.deepEqual(values('SELECT video_id FROM favorite_videos'), ['jf:episode'])
+  assert.deepEqual(values('SELECT video_id FROM playback_progress'), ['jf:episode'])
+  assert.deepEqual({ ...d1.sqlite.prepare("SELECT last_state, ended_at, video_id FROM playback_sessions WHERE id = 'old'").get() },
+    { last_state: 'ended', ended_at: 20, video_id: null })
+  assert.deepEqual(values('SELECT watched_seconds FROM viewing_events'), [10])
+  assert.deepEqual(values('SELECT cartoon_seconds FROM daily_usage_summaries'), [10])
+  assert.deepEqual(values('SELECT video_id FROM episode_claims'), ['ol:episode'])
+  assert.deepEqual(d1.sqlite.prepare('PRAGMA foreign_key_check').all(), [])
 })

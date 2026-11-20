@@ -1,8 +1,6 @@
 import { prepareJellyfinRemux, cleanupRemux, type RemuxSession } from './jellyfin-remux.ts'
 import { playbackReads } from '../database/playback-reads.ts'
 import { database } from '../database/client.ts'
-import { getProvider } from './provider-config.ts'
-import { resolveMediaUrl } from './webdav-client.ts'
 import type { Context, Hono } from 'hono'
 import { getJellyfinServer, prepareJellyfinMedia, jellyfinDirectUrl, directMp4Source } from './jellyfin-client.ts'
 import { HTTPException } from 'hono/http-exception'
@@ -76,7 +74,7 @@ export function registerPlaybackRoutes(app: Hono<AppEnv>, now: () => Date) {
         timePoolId: pool.id, timePoolName: pool.name,
         authorizedAt: authorizedAt.toISOString(),
         sessionId,
-        playerKind: /^(ol|jf):/.test(input.videoId) ? 'native' : 'youtube',
+        playerKind: input.videoId.startsWith('jf:') ? 'native' : 'youtube',
         remainingSeconds: settledRemaining,
         heartbeatIntervalSeconds: HEARTBEAT_INTERVAL_SECONDS,
         leaseExpiresAt: leaseExpiresAt.toISOString(),
@@ -92,7 +90,7 @@ export function registerPlaybackRoutes(app: Hono<AppEnv>, now: () => Date) {
   async function activeNativeSession(c: Context<AppEnv>) {
     const childId = c.get('user').id
     const session = await playbackReads(database(c.env.DB)).session().execute({ id: c.req.param('id') ?? '', childId })
-    if (!session || session.endedAt || session.leaseExpiresAt <= now() || !session.videoId || !/^(ol|jf):/.test(session.videoId)) throw new HTTPException(403, { message: 'Playback Authorization is no longer active' })
+    if (!session || session.endedAt || session.leaseExpiresAt <= now() || !session.videoId?.startsWith('jf:')) throw new HTTPException(403, { message: 'Playback Authorization is no longer active' })
     return session
   }
 
@@ -124,46 +122,35 @@ export function registerPlaybackRoutes(app: Hono<AppEnv>, now: () => Date) {
     // Cheap ownership/lease gate before upstream I/O; full policy is checked
     // once, after resolving the URL and immediately before returning it.
     const session = await activeNativeSession(c)
-    if (session.videoId!.startsWith('jf:')) {
-      const media = await db.query.jellyfinMedia.findFirst({ where: eq(schema.jellyfinMedia.videoId, session.videoId!) })
-      if (!media) throw new HTTPException(404, { message: 'Jellyfin episode not found' })
-      const server = await getJellyfinServer(c.env, media.serverId)
-      const source = await prepareJellyfinMedia(c.env, server, media.itemId)
-      let remux: RemuxSession | undefined
-      let published = false
-      try {
-        let result: { url: string; transport?: 'hls'; hlsEngine?: 'native' | 'mse'; cleanupId?: string }
-        if (directMp4Source([source])) result = { url: await jellyfinDirectUrl(c.env, server, media.itemId, source.Id!) }
-        else {
-          const codecs = (c.req.query('codecs') ?? '').slice(0, 100).split(',')
-          const id = crypto.randomUUID()
-          const nativePlayback = c.req.query('nativeCodecs') === undefined ? undefined : {
-            codecs: (c.req.query('nativeCodecs') ?? '').slice(0, 100).split(','), preferred: c.req.query('preferNativeHls') === '1',
-          }
-          const prepared = await prepareJellyfinRemux(c.env, server, media.itemId, source, codecs, `ztube-${id}`, nativePlayback)
-          remux = { id, serverId: server.id, deviceId: prepared.deviceId, playSessionId: prepared.playSessionId }
-          await c.env.DB.prepare('INSERT INTO jellyfin_remux_sessions (id, authorization_id, server_id, play_session_id, device_id, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-            .bind(id, session.id, server.id, remux.playSessionId, remux.deviceId, epochSeconds(now())).run()
-          result = { url: prepared.url, transport: 'hls', ...(nativePlayback ? { hlsEngine: prepared.hlsEngine } : {}), cleanupId: id }
+    const media = await db.query.jellyfinMedia.findFirst({ where: eq(schema.jellyfinMedia.videoId, session.videoId!) })
+    if (!media) throw new HTTPException(404, { message: 'Jellyfin episode not found' })
+    const server = await getJellyfinServer(c.env, media.serverId)
+    const source = await prepareJellyfinMedia(c.env, server, media.itemId)
+    let remux: RemuxSession | undefined
+    let published = false
+    try {
+      let result: { url: string; transport?: 'hls'; hlsEngine?: 'native' | 'mse'; cleanupId?: string }
+      if (directMp4Source([source])) result = { url: await jellyfinDirectUrl(c.env, server, media.itemId, source.Id!) }
+      else {
+        const codecs = (c.req.query('codecs') ?? '').slice(0, 100).split(',')
+        const id = crypto.randomUUID()
+        const nativePlayback = c.req.query('nativeCodecs') === undefined ? undefined : {
+          codecs: (c.req.query('nativeCodecs') ?? '').slice(0, 100).split(','), preferred: c.req.query('preferNativeHls') === '1',
         }
-        await validateNative(c)
-        const current = await getJellyfinServer(c.env, server.id)
-        if (current.revision !== server.revision) throw new HTTPException(409, { message: 'Jellyfin connection changed. Restart playback.' })
-        published = true
-        return c.json(result)
-      } finally {
-        if (remux && !published) await cleanupRemux(c.env, remux)
+        const prepared = await prepareJellyfinRemux(c.env, server, media.itemId, source, codecs, `ztube-${id}`, nativePlayback)
+        remux = { id, serverId: server.id, deviceId: prepared.deviceId, playSessionId: prepared.playSessionId }
+        await c.env.DB.prepare('INSERT INTO jellyfin_remux_sessions (id, authorization_id, server_id, play_session_id, device_id, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+          .bind(id, session.id, server.id, remux.playSessionId, remux.deviceId, epochSeconds(now())).run()
+        result = { url: prepared.url, transport: 'hls', ...(nativePlayback ? { hlsEngine: prepared.hlsEngine } : {}), cleanupId: id }
       }
+      await validateNative(c)
+      const current = await getJellyfinServer(c.env, server.id)
+      if (current.revision !== server.revision) throw new HTTPException(409, { message: 'Jellyfin connection changed. Restart playback.' })
+      published = true
+      return c.json(result)
+    } finally {
+      if (remux && !published) await cleanupRemux(c.env, remux)
     }
-    await validateNative(c)
-    const media = await db.query.providerMedia.findFirst({ where: eq(schema.providerMedia.videoId, session.videoId!) })
-    if (!media) throw new HTTPException(404, { message: 'Media source not found' })
-    const provider = await getProvider(c.env, media.providerId)
-    const url = await resolveMediaUrl(c.env, provider, media.path)
-    await validateNative(c)
-    const current = await getProvider(c.env, provider.id)
-    if (!current.enabled || current.revision !== provider.revision) throw new HTTPException(409, { message: 'Provider changed. Restart playback.' })
-    return c.json({ url })
   })
 
   app.post('/api/child/playback-authorizations/:id/media/:mediaId/stop', async c => {

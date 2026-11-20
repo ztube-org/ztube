@@ -142,7 +142,7 @@ test('Jellyfin sync preserves approvals and claims, removes unsupported episodes
     await f.request('child/episode-claims', { videoId, confirmed: true, viewingDay: '2026-09-17' }, 'POST', 2)
     assert.equal((await f.importSeries()).id, imported.id)
     assert.equal((await f.db.prepare('SELECT count(*) AS n FROM episode_claims').first<{ n: number }>())!.n, 1)
-    assert.equal((await f.request(`admin/library-playlists/${imported.id}`)).status, 409)
+    assert.equal((await f.request(`admin/library-playlists/${imported.id}`)).status, 404)
     f.calls.length = 0
     f.empty()
     await f.importSeries()

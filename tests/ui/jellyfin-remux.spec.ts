@@ -68,6 +68,26 @@ test('HLS plays audio and video, resumes and seeks both ways, then releases medi
   expect(errors).toEqual([])
 })
 
+test('Jellyfin playback retries in place after the page returns from the background', async ({ page }) => {
+  const state = await fixture(page)
+  await page.goto('/watch?v=jf:hls-test')
+  await expect(page.locator('video')).toHaveCount(1)
+  await expect.poll(() => state.mediaReads).toBeGreaterThan(0)
+  await page.evaluate(() => {
+    document.documentElement.dataset.retryMarker = 'original-document'
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+    Reflect.deleteProperty(document, 'hidden')
+  })
+  await expect(page.getByRole('alert')).toContainText('in the background')
+  await expect(page.locator('video')).toHaveCount(0)
+  const priorReads = state.mediaReads
+  await page.getByRole('button', { name: 'Try again', exact: true }).click()
+  await expect(page.locator('video')).toHaveCount(1)
+  await expect.poll(() => state.mediaReads).toBeGreaterThan(priorReads)
+  await expect(page.locator('html')).toHaveAttribute('data-retry-marker', 'original-document')
+})
+
 test('a Remux response arriving after the Child leaves is released without creating a player', async ({ page }) => {
   const state = await fixture(page, true)
   await page.goto('/watch?v=jf:hls-test')

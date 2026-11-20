@@ -1,6 +1,7 @@
 PRAGMA foreign_keys = ON;
 
 DELETE FROM `content_sync_jobs`;
+DELETE FROM `jellyfin_remux_sessions`;
 DELETE FROM `playback_sessions`;
 DELETE FROM `playback_progress`;
 DELETE FROM `favorite_videos`;
@@ -14,6 +15,9 @@ DELETE FROM `child_time_settings`;
 DELETE FROM `children`;
 DELETE FROM `channel_videos`;
 DELETE FROM `playlist_videos`;
+DELETE FROM `curated_playlists`;
+DELETE FROM `jellyfin_media`;
+DELETE FROM `jellyfin_servers`;
 
 DELETE FROM `sqlite_sequence`
 WHERE `name` IN (

@@ -8,8 +8,7 @@ directly from Jellyfin.
 
 1. Apply all D1 migrations before deploying the Worker.
    Migration 0023 supplies the configurable Time Pools used by this integration.
-2. Set `PROVIDER_ENCRYPTION_KEY` as described in the [README](../README.md#4-set-your-worker-secrets), or keep the existing key. Jellyfin keys use the
-   same AES-GCM credential envelope as WebDAV; no additional Worker secret is required.
+2. Set `PROVIDER_ENCRYPTION_KEY` as described in the [README](../README.md#4-set-your-worker-secrets), or keep the existing key. ZTube uses it to encrypt Jellyfin credentials with AES-GCM.
    Do not replace an existing encryption key when adding a connection.
 3. In Jellyfin's Dashboard, create an API key for ZTube.
 4. In ZTube, open **Manage Jellyfin library** and **Add Jellyfin server**. Enter the

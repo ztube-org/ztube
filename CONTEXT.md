@@ -16,13 +16,13 @@ _Avoid_: Manually created account, device
 A channel, playlist, or individual video that the Admin has explicitly made available to a child. Videos of three minutes or less are excluded, including Shorts found inside an approved channel or playlist.
 _Avoid_: Allowed URL, safe content
 
-**Provider**:
-An Admin-managed connection to an external media library from which videos can be selected for Playlists. Adding a Provider does not make its files Approved Content for any Child.
+**Jellyfin Connection**:
+An Admin-managed connection to a Jellyfin server from which the Admin can import series or seasons. Each Child receives access through a separate approval.
 _Avoid_: Playlist, Child account, approval
 
 **Playlist**:
-An ordered collection of videos imported from YouTube or assembled by the Admin from connected Providers. The same Playlist can be approved for multiple Children, with independently assigned Pool Bindings and tags.
-_Avoid_: Storage directory, Provider, Child-specific copy
+An ordered collection of videos from YouTube or imported from Jellyfin. The same Playlist can be approved for multiple Children, with independently assigned Pool Bindings and tags.
+_Avoid_: Storage directory, Child-specific copy
 
 **Watch Time**:
 Wall-clock time during which Approved Content is actively playing for a Child, including advertisements and replays. Paused, buffering, or backgrounded playback does not count, and playback speed does not change the amount counted.
@@ -98,7 +98,7 @@ _Avoid_: Category, Pool Binding
 
 **Cartoon Pool**:
 The combined episodes an Admin makes available to one Child to unlock, including imported series and seasons. Its library uses a selected Time Pool and shares daily Unlock Credits with other unlock-required content, regardless of the entry route.
-_Avoid_: Provider, daily playlist, Time Pool
+_Avoid_: Daily playlist, Time Pool
 
 **Episode Claim**:
 A Child's explicitly confirmed use of one Unlock Credit to obtain an Episode Unlock. Repeating a claim for an already unlocked episode never spends another credit.

@@ -223,23 +223,6 @@ export const viewingEvents = sqliteTable('viewing_events', {
   index('viewing_events_retention').on(table.authorizedAt),
 ])
 
-// Connection secrets are AES-GCM envelopes; the key lives in a Worker Secret.
-export const mediaProviders = sqliteTable('media_providers', {
-  webdavUrl: text('webdav_url'),
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  url: text('url').notNull(),
-  rootPath: text('root_path').notNull().default('/'),
-  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
-  credentials: text('credentials').notNull(),
-  sessionToken: text('session_token'),
-  revision: integer('revision').notNull().default(1),
-})
-export const providerMedia = sqliteTable('provider_media', {
-  videoId: text('video_id').primaryKey(),
-  providerId: text('provider_id').notNull().references(() => mediaProviders.id),
-  path: text('path').notNull(),
-}, table => [uniqueIndex('provider_media_path').on(table.providerId, table.path)])
 export const curatedPlaylists = sqliteTable('curated_playlists', {
   writeToken: text('write_token'),
   id: text('id').primaryKey(),
