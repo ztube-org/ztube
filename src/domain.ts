@@ -56,6 +56,18 @@ export type ViewingPolicy = {
   breakUntil?: string | null
   nextWindow?: { day: string; time: string; timeZone: string } | null
 }
+export type AdminChildViewing = {
+  pools: Pick<TimePoolStatus, 'id' | 'name' | 'remainingSeconds' | 'locked' | 'allowanceMinutes'>[]
+  policy: ViewingPolicy
+  activePlayback: { watching: boolean; videoTitle: string | null }
+}
+export type AdminChild = AdminChildViewing & {
+  id: number
+  email: string
+  displayName: string | null
+  avatarUrl: string | null
+  isAdmin: boolean
+}
 export type ViewingStatus = { watchTime: WatchTimeStatus; policy: ViewingPolicy }
 export type BrowseChannel = { id: number; channelTitle: string; channelThumbnail: string | null; isAvailable: boolean; contentRule: ContentRule; tags: string[] }
 export type BrowsePlaylist = { id: number; playlistId?: string; cartoonPool?: boolean; playlistTitle: string; playlistThumbnail: string | null; isAvailable: boolean; contentRule: ContentRule; tags: string[] }

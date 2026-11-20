@@ -1,7 +1,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ApiError, apiFetch, useApi } from '../../src/api'
 
-export function useAdminViewing(childId: number) {
+export function useAdminViewing(childId: number, requestReduction: (message: string, proceed: () => Promise<void>) => void) {
   const { data: timeData, refresh: refreshTimeSettings } = useApi<any>(`/api/admin/children/${childId}/time-settings`)
   const { data: watchTime, refresh: refreshWatchTime } = useApi<any>(`/api/admin/children/${childId}/watch-time`)
   const usageDays = ref<7 | 30>(7)
@@ -52,29 +52,28 @@ export function useAdminViewing(childId: number) {
   })
   watch(() => timeData.value?.settings, settings => { if (settings) Object.assign(timeForm, settings) }, { immediate: true })
 
-  async function saveTimeSettings() {
+  async function saveTimeSettings(settings = { ...timeForm }, confirmReduction = false) {
     timeSaving.value = true
     timeError.value = ''
     timeSaved.value = false
     try {
-      try {
-        await apiFetch(`/api/admin/children/${childId}/time-settings`, { method: 'PUT', body: timeForm })
-      } catch (error) {
-        if (!(error instanceof ApiError) || error.status !== 409 || error.response.requiresConfirmation !== true
-          || !confirm(`${error.message}\n\nSave these recurring allowances anyway?`)) throw error
-        await apiFetch(`/api/admin/children/${childId}/time-settings`, { method: 'PUT', body: { ...timeForm, confirmReduction: true } })
-      }
+      await apiFetch(`/api/admin/children/${childId}/time-settings`, { method: 'PUT', body: { ...settings, confirmReduction } })
       await Promise.all([refreshTimeSettings(), refreshWatchTime()])
       timeSaved.value = true
     } catch (error) {
-      timeError.value = error instanceof Error ? error.message : 'Failed to save time settings'
+      if (!confirmReduction && error instanceof ApiError && error.status === 409 && error.response.requiresConfirmation === true) {
+        requestReduction(error.message, () => saveTimeSettings(settings, true))
+      } else timeError.value = error instanceof Error ? error.message : 'Failed to save time settings'
     } finally { timeSaving.value = false }
   }
 
   const interventionSaving = ref(false)
   async function updateViewing(action: () => Promise<unknown>) {
     interventionSaving.value = true
-    try { await action(); await refreshWatchTime() } finally { interventionSaving.value = false }
+    timeError.value = ''
+    try { await action(); await refreshWatchTime() }
+    catch (error) { timeError.value = error instanceof Error ? error.message : 'Failed to update viewing' }
+    finally { interventionSaving.value = false }
   }
   const extendToday = (bucket: 'restricted' | 'exempt', minutes: 15 | 30 | 60) => updateViewing(() => apiFetch(`/api/admin/children/${childId}/watch-time/extensions`, { method: 'POST', body: { bucket, minutes } }))
   const setRestrictedUnlock = (unlocked: boolean) => updateViewing(() => apiFetch(`/api/admin/children/${childId}/watch-time/restricted-unlock`, { method: 'PUT', body: { unlocked } }))

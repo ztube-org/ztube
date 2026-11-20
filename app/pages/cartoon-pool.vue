@@ -9,6 +9,7 @@ import VideoCard from '../components/VideoCard.vue'
 const data = ref<CartoonPoolResponse | null>(null)
 const query = ref('')
 const library = ref<BrowseResponse | null>(null)
+const continuation = computed(() => (library.value?.continueWatching ?? []).filter(video => video.videoId.startsWith('jf:')))
 const series = computed(() => (library.value?.playlists ?? []).filter(p => p.playlistId?.startsWith('pl:jf:')))
 const filteredSeries = computed(() => series.value.filter(p => p.playlistTitle.toLowerCase().includes(query.value.trim().toLowerCase())))
 const showUnlocked = ref(false)
@@ -64,6 +65,12 @@ const watchLocation = (videoId: string) => ({ path: '/watch', query: { v: videoI
     </div>
 
     <div v-if="error" class="mb-3 flex items-center gap-3" role="alert"><span>{{ error }}</span><UButton variant="soft" @click="load()">Retry</UButton></div>
+    <section v-if="continuation.length" class="mb-5" aria-labelledby="jellyfin-continue-watching">
+      <h2 id="jellyfin-continue-watching" class="zt-section-title">Continue Watching</h2>
+      <div class="zt-video-shelf">
+        <VideoCard v-for="video in continuation" :key="video.videoId" :video="video" :to="watchLocation(video.videoId)" />
+      </div>
+    </section>
     <div class="mb-4 flex gap-2" aria-label="Jellyfin collection"><UButton :variant="showUnlocked ? 'ghost' : 'soft'" @click="showUnlocked = false">Series</UButton><UButton :variant="showUnlocked ? 'soft' : 'ghost'" @click="showUnlocked = true">Unlocked</UButton></div>
     <section v-if="filteredSeries.length && !showUnlocked" class="mb-6" aria-label="Cartoon series">
       <h2 class="zt-section-title">Choose a series</h2>

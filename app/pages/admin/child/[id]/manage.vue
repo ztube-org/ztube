@@ -6,12 +6,18 @@ import DailyUsageChart from '../../../../components/DailyUsageChart.vue'
 import ViewingEvents from '../../../../components/ViewingEvents.vue'
 import TimePoolManager from '../../../../components/TimePoolManager.vue'
 import type { TimePoolsResponse, TimePoolBinding } from '../../../../../src/domain'
+import ActionConfirm, { type Confirmation } from '../../../../components/ActionConfirm.vue'
 import AdminNav from '../../../../components/AdminNav.vue'
 import CartoonPoolSettings from '../../../../components/CartoonPoolSettings.vue'
 import { useAdminViewing } from '../../../../composables/use-admin-viewing'
 
 const route = useRoute()
 const childId = parseInt(route.params.id as string)
+type ContentKind = 'channel' | 'playlist' | 'video'
+const confirmation = ref<Confirmation | null>(null)
+const contentError = ref('')
+const copyError = ref('')
+const copyNotice = ref('')
 
 const { data, refresh } = useApi<any>(`/api/admin/children/${childId}/content`)
 const { data: childrenData } = useApi<any>('/api/admin/children')
@@ -19,7 +25,9 @@ const {
   timeData, watchTime, usageDays, usage, usageError, usageLoading, refreshUsage, detectedTimeZone, timeForm, timeSaving, timeError, timeSaved,
   clockOptions, endClockOptions, breakAfterOptions, breakDurationOptions, timeZoneOptions,
   saveTimeSettings, interventionSaving, setViewingPause,
-} = useAdminViewing(childId)
+} = useAdminViewing(childId, (description, run) => {
+  confirmation.value = { title: 'Save reduced allowances?', description, label: 'Save allowances', run }
+})
 const poolData = ref<TimePoolsResponse | null>(null)
 const contentRuleOptions = computed(() => (poolData.value?.pools ?? []).map(pool => ({ label: pool.name, value: pool.id })))
 function boundPool(kind: TimePoolBinding['kind'], contentId: string, legacyKey = 'restricted') {
@@ -45,13 +53,26 @@ const copying = ref(false)
 const copyOptions = computed(() => (childrenData.value?.children ?? [])
   .filter((child: any) => child.id !== childId)
   .map((child: any) => ({ label: child.displayName || child.email, value: child.id })))
-async function copyContent() {
-  if (!copySourceChildId.value || !confirm('Copy Approved Content, Cartoon Pool membership, default pool choices, and tags from this Child? Existing matching items will be updated. The target Child’s Time Pools and unlock requirements apply; source custom Pool Bindings and budgets are not copied. Review the target pools after copying.')) return
+function requestCopyContent() {
+  const sourceChildId = copySourceChildId.value
+  const source = copyOptions.value.find((option: { value: number }) => option.value === sourceChildId)
+  if (!sourceChildId || !source) return
+  confirmation.value = {
+    title: 'Copy Approved Content?',
+    description: `Copy approvals, Cartoon Pool membership, default pool choices, and tags from ${source.label}. Existing matching approvals will be updated, and this Child’s allowances and unlock requirements apply.`,
+    label: 'Copy content', run: () => copyContent(sourceChildId),
+  }
+}
+async function copyContent(sourceChildId: number) {
   copying.value = true
+  copyError.value = ''
+  copyNotice.value = ''
   try {
-    await apiFetch(`/api/admin/children/${childId}/content/copy`, { method: 'POST', body: { sourceChildId: copySourceChildId.value } })
+    await apiFetch(`/api/admin/children/${childId}/content/copy`, { method: 'POST', body: { sourceChildId } })
     await refresh()
-  } finally { copying.value = false }
+    copyNotice.value = 'Approved Content copied.'
+  } catch (cause) { copyError.value = cause instanceof Error ? cause.message : 'Unable to copy Approved Content' }
+  finally { copying.value = false }
 }
 
 const section = ref('time')
@@ -103,41 +124,96 @@ async function addContent() {
   }
 }
 
-async function deleteContent(id: number, type: string) {
-  if (!confirm('Remove this content from allowlist?')) return
-
+function requestRemoveContent(id: number, type: ContentKind, title: string) {
+  confirmation.value = {
+    title: 'Remove Approved Content?',
+    description: `Remove approval for “${title}” for this Child.`,
+    label: 'Remove content', destructive: true, run: () => deleteContent(id, type),
+  }
+}
+async function deleteContent(id: number, type: ContentKind) {
+  contentError.value = ''
   try {
     await apiFetch(`/api/admin/content/${id}?type=${type}`, { method: 'DELETE' })
     await refresh()
-  } catch (e: any) {
-    alert(e.response?.message || e.message || 'Failed to delete')
-  }
+  } catch (cause) { contentError.value = cause instanceof Error ? cause.message : 'Unable to remove Approved Content' }
 }
 
 async function updatePoolBinding(contentId: string, kind: TimePoolBinding['kind'], poolId: string | null) {
+  contentError.value = ''
   try {
     await apiFetch(`/api/admin/children/${childId}/time-pool-bindings`, { method: 'PUT', body: { kind, contentId, poolId } })
     poolData.value = await apiFetch<TimePoolsResponse>(`/api/admin/children/${childId}/time-pools`)
     await refresh()
-  } catch (cause) { alert(cause instanceof Error ? cause.message : 'Failed to update time pool') }
+  } catch (cause) { contentError.value = cause instanceof Error ? cause.message : 'Failed to update Time Pool' }
 }
 
-async function editTags(item: any, type: 'channel' | 'playlist' | 'video') {
-  const value = prompt('Tags (comma separated, up to 8)', (item.tags ?? []).join(', '))
-  if (value === null) return
-  const tags = [...new Set(value.split(',').map(tag => tag.trim()).filter(Boolean))].slice(0, 8)
-  await apiFetch(`/api/admin/children/${childId}/content/${type}/${item.id}/tags`, { method: 'PUT', body: { tags } })
-  await refresh()
+const tagsOpen = ref(false)
+const tagTarget = ref<{ id: number; type: ContentKind; title: string } | null>(null)
+const selectedTags = ref<string[]>([])
+const newTag = ref('')
+const tagError = ref('')
+const tagsSaving = ref(false)
+let tagTrigger: HTMLElement | null = null
+const tagOptions = computed(() => {
+  const library = [...(data.value?.channels ?? []), ...(data.value?.playlists ?? []), ...(data.value?.videos ?? [])]
+  const existing = library.flatMap((item: { tags?: string[] }) => item.tags ?? [])
+  return [...new Set([...selectedTags.value, ...existing])].sort()
+})
+function openTags(item: { id: number; tags?: string[] }, type: ContentKind, title: string, event: MouseEvent) {
+  tagTrigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
+  tagTarget.value = { id: item.id, type, title }
+  selectedTags.value = [...new Set(item.tags ?? [])]
+  newTag.value = ''
+  tagError.value = ''
+  tagsOpen.value = true
+}
+function restoreTagFocus(event: Event) {
+  if (tagTrigger?.isConnected) {
+    event.preventDefault()
+    tagTrigger.focus()
+  }
+}
+function toggleTag(tag: string) {
+  tagError.value = ''
+  if (selectedTags.value.includes(tag)) selectedTags.value = selectedTags.value.filter(value => value !== tag)
+  else if (selectedTags.value.length < 8) selectedTags.value.push(tag)
+  else tagError.value = 'Choose up to 8 tags.'
+}
+function addTag() {
+  const tag = newTag.value.trim()
+  tagError.value = ''
+  if (!tag) return true
+  if (tag.length > 24) tagError.value = 'Use 24 characters or fewer.'
+  else if (!selectedTags.value.includes(tag)) toggleTag(tag)
+  if (tagError.value) return false
+  newTag.value = ''
+  return true
+}
+async function saveTags() {
+  const target = tagTarget.value
+  if (!target || tagsSaving.value || !addTag()) return
+  tagsSaving.value = true
+  try {
+    await apiFetch(`/api/admin/children/${childId}/content/${target.type}/${target.id}/tags`, { method: 'PUT', body: { tags: selectedTags.value } })
+    await refresh()
+    tagsOpen.value = false
+  } catch (cause) { tagError.value = cause instanceof Error ? cause.message : 'Unable to save tags' }
+  finally { tagsSaving.value = false }
 }
 
 async function syncContent(item: any, type: 'channel' | 'playlist' | 'video') {
+  contentError.value = ''
   syncingId.value = `${type}-${item.id}`
   try {
     await apiFetch(`/api/admin/children/${childId}/content/${type}/${item.id}/sync`, { method: 'POST' })
     if (overrideSource.value?.type === type && overrideSource.value.id === item.id) await showVideoOverrides(type, item.id, type === 'channel' ? item.channelTitle : item.playlistTitle)
   } catch (cause) {
-    alert(cause instanceof Error ? cause.message : 'Sync failed; automatic retry scheduled')
-  } finally { syncingId.value = ''; await refresh() }
+    contentError.value = cause instanceof Error ? cause.message : 'Sync failed; automatic retry scheduled'
+  } finally {
+    syncingId.value = ''
+    await refresh().catch(() => { contentError.value ||= 'Unable to reload Approved Content' })
+  }
 }
 
 function syncLabel(item: any) {
@@ -187,6 +263,31 @@ function formatPublishedDate(value: string | null): string {
 
 <template>
   <div class="zt-page">
+    <ActionConfirm v-model="confirmation" />
+    <UModal v-model:open="tagsOpen" title="Edit tags" :description="tagTarget?.title" :close="false" :dismissible="!tagsSaving"
+      :content="{ onCloseAutoFocus: restoreTagFocus }" :ui="{ content: 'max-w-lg', body: 'space-y-3 p-3 sm:p-4', footer: 'justify-end gap-2 p-3 sm:p-4' }">
+      <template #body>
+        <div v-if="tagOptions.length" class="flex max-h-44 flex-wrap items-start gap-1.5 overflow-y-auto p-1" role="group" aria-label="Library tags">
+          <UButton v-for="tag in tagOptions" :key="tag" type="button" class="min-h-11 min-w-11 rounded-full" size="sm"
+            :color="selectedTags.includes(tag) ? 'primary' : 'neutral'" :variant="selectedTags.includes(tag) ? 'solid' : 'outline'"
+            :aria-pressed="selectedTags.includes(tag)" :disabled="tagsSaving" @click="toggleTag(tag)">{{ tag }}</UButton>
+        </div>
+        <form class="space-y-1" @submit.prevent="addTag">
+          <label for="new-approved-tag" class="text-sm font-medium">New tag</label>
+          <div class="flex gap-2">
+            <UInput id="new-approved-tag" v-model="newTag" autocomplete="off" class="min-w-0 flex-1" :ui="{ base: 'min-h-11' }"
+              :disabled="tagsSaving" aria-describedby="tag-limit" @input="tagError = ''" />
+            <UButton type="submit" variant="soft" class="min-h-11 min-w-11" :disabled="tagsSaving || !newTag.trim()">Add tag</UButton>
+          </div>
+          <p id="tag-limit" class="text-xs text-[var(--zt-muted)]">{{ selectedTags.length }} of 8 selected · 24 characters per tag</p>
+        </form>
+        <p v-if="tagError" role="alert" class="rounded-lg border border-red-300 p-2 text-sm text-red-600">{{ tagError }}</p>
+      </template>
+      <template #footer>
+        <UButton color="neutral" variant="soft" class="min-h-11 min-w-11" :disabled="tagsSaving" @click="tagsOpen = false">Cancel</UButton>
+        <UButton class="min-h-11 min-w-11" :loading="tagsSaving" @click="saveTags">Save tags</UButton>
+      </template>
+    </UModal>
     <AdminNav />
     <div class="mb-5 flex items-center gap-3 border-b border-gray-200 pb-4">
       <NuxtLink to="/admin" class="flex min-h-11 min-w-11 items-center justify-center rounded-full text-gray-700 hover:bg-gray-100" aria-label="Back to accounts">
@@ -222,16 +323,19 @@ function formatPublishedDate(value: string | null): string {
           <div><h2 class="font-semibold">Copy Approved Content</h2><p class="text-xs text-gray-500">Copies approvals, Cartoon Pool membership, default pool choices, and tags. The target Child’s Time Pools and unlock requirements apply; custom Pool Bindings and budgets are not copied.</p></div>
         </template>
         <div class="flex items-end gap-3">
-          <UFormField label="Copy from Child" class="flex-1"><USelect v-model="copySourceChildId" :items="copyOptions" class="w-full" placeholder="Select a Child" /></UFormField>
-          <UButton :disabled="!copySourceChildId" :loading="copying" @click="copyContent">Copy</UButton>
+          <UFormField label="Copy from Child" class="flex-1"><USelect v-model="copySourceChildId" :items="copyOptions" class="min-h-11 w-full" placeholder="Select a Child" /></UFormField>
+          <UButton class="min-h-11" :disabled="!copySourceChildId" :loading="copying" @click="requestCopyContent">Copy</UButton>
         </div>
+        <p v-if="copyError" role="alert" class="mt-3 rounded-lg border border-red-300 p-2 text-sm text-red-600">{{ copyError }}</p>
+        <p v-if="copyNotice" role="status" class="mt-3 text-sm">{{ copyNotice }}</p>
       </UCard>
     </div>
 
     </section>
     <section v-show="section === 'time'" id="panel-time" role="tabpanel" aria-labelledby="tab-time">
 
-    <div v-if="watchTime" class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--zt-border)] px-3 py-2"><div><p class="font-medium">Today · {{ watchTime.viewingDay }}</p><p class="text-sm text-[var(--zt-muted)]">{{ watchTime.policy?.reason === 'viewing-pause' ? 'Viewing is paused' : 'Pause stops playback across all time pools' }}</p></div><UButton :color="watchTime.policy?.reason === 'viewing-pause' ? 'neutral' : 'warning'" :disabled="interventionSaving" @click="setViewingPause(watchTime.policy?.reason !== 'viewing-pause')">{{ watchTime.policy?.reason === 'viewing-pause' ? 'Resume viewing' : 'Pause viewing today' }}</UButton></div>
+    <div v-if="watchTime" class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--zt-border)] px-3 py-2"><div><p class="font-medium">Today · {{ watchTime.viewingDay }}</p><p class="text-sm text-[var(--zt-muted)]">{{ watchTime.policy?.reason === 'viewing-pause' ? 'Viewing is paused' : 'Pause stops playback across all time pools' }}</p></div><UButton class="min-h-11" :color="watchTime.policy?.reason === 'viewing-pause' ? 'neutral' : 'warning'" :disabled="interventionSaving" @click="setViewingPause(watchTime.policy?.reason !== 'viewing-pause')">{{ watchTime.policy?.reason === 'viewing-pause' ? 'Resume viewing' : 'Pause viewing today' }}</UButton></div>
+    <p v-if="timeError" role="alert" class="mb-3 rounded-lg border border-red-300 p-2 text-sm text-red-600">{{ timeError }}</p>
     <TimePoolManager :child-id="childId" @loaded="poolData = $event" />
     <details class="mb-4 rounded-xl border border-[var(--zt-border)] px-3"><summary class="min-h-12 cursor-pointer content-center font-medium">Unlock credits</summary><CartoonPoolSettings :child-id="childId" :pools="poolData?.pools ?? []" :playlists="data?.playlists ?? []" /></details>
 
@@ -244,7 +348,7 @@ function formatPublishedDate(value: string | null): string {
           <p class="text-sm text-gray-500">Viewing hours and breaks apply across every time pool.</p>
         </div>
       </template>
-      <form class="grid gap-3 sm:grid-cols-2" @submit.prevent="saveTimeSettings">
+      <form class="grid gap-3 sm:grid-cols-2" @submit.prevent="saveTimeSettings()">
         <UFormField label="Time zone" class="md:col-span-2">
           <USelect v-model="timeForm.timeZone" :items="timeZoneOptions" class="w-full" />
           <template #hint>Initially suggested from this browser: {{ detectedTimeZone }}</template>
@@ -254,10 +358,9 @@ function formatPublishedDate(value: string | null): string {
         <UFormField label="Required Break"><USelect v-model="timeForm.breakAfterMinutes" :items="breakAfterOptions" class="w-full" /></UFormField>
         <UFormField label="Break duration"><USelect v-model="timeForm.breakDurationMinutes" :items="breakDurationOptions" :disabled="timeForm.breakAfterMinutes === 0" class="w-full" /></UFormField>
         <div class="flex items-end justify-end">
-          <UButton type="submit" :loading="timeSaving">Save viewing routine</UButton>
+          <UButton type="submit" class="min-h-11" :loading="timeSaving">Save viewing routine</UButton>
         </div>
-        <UAlert v-if="timeError" color="red" :title="timeError" class="md:col-span-2" />
-        <UAlert v-else-if="timeSaved" color="green" title="Viewing routine saved" class="md:col-span-2" />
+        <UAlert v-if="timeSaved" color="green" title="Viewing routine saved" class="md:col-span-2" />
         <p v-if="timeData?.viewingDay" class="text-sm text-gray-500 md:col-span-2">
           Current Viewing Day: {{ timeData.viewingDay.localDate }} ·
           {{ timeData.viewingDay.isWeekend ? 'Weekend' : 'Weekday' }} pool allowances apply.
@@ -272,6 +375,7 @@ function formatPublishedDate(value: string | null): string {
     </section>
     <section v-show="section === 'content'" id="panel-content" role="tabpanel" aria-labelledby="tab-content">
     <div class="flex flex-wrap items-center justify-between gap-3"><div><h2 class="text-xl font-semibold">Approved content</h2><p class="text-sm text-[var(--zt-muted)]">Add YouTube links here. Manage imported series in the Jellyfin library.</p></div><UButton to="/admin/jellyfin" variant="soft">Jellyfin library</UButton></div>
+    <p v-if="contentError" role="alert" class="my-3 rounded-lg border border-red-300 p-2 text-sm text-red-600">{{ contentError }}</p>
     <section class="my-5 rounded-xl border border-[var(--zt-border)] p-3" aria-label="Child Jellyfin access">
       <h3 class="font-semibold">Jellyfin</h3><p v-if="!jellyfinPlaylists.length" class="py-2 text-sm text-[var(--zt-muted)]">No shared series. Choose this child in the Jellyfin library to grant access.</p>
       <div v-for="item in jellyfinPlaylists" :key="item.id" class="flex items-center justify-between gap-3 border-t border-[var(--zt-border)] py-2"><div class="min-w-0"><p class="font-medium">{{ item.playlistTitle }}</p><p class="text-sm text-[var(--zt-muted)]">{{ item.cartoonPool ? 'Uses the cartoon library time pool and unlock credits' : 'Approved for this child' }}</p></div><UButton color="neutral" variant="ghost" @click="deleteContent(item.id, 'playlist')">Remove access</UButton></div>
@@ -331,8 +435,8 @@ function formatPublishedDate(value: string | null): string {
                 <USelect :model-value="boundPool('channel', channel.channelId, channel.contentRule)" :aria-label="`Time pool for ${channel.channelTitle}`" :items="contentRuleOptions" class="min-h-11 min-w-44" size="xs" @update:model-value="updatePoolBinding(channel.channelId, 'channel', String($event))" />
                 <UButton variant="ghost" size="xs" class="min-h-11" @click="showVideoOverrides('channel', channel.id, channel.channelTitle)">Video overrides</UButton>
                 <UButton variant="ghost" size="xs" class="min-h-11" :loading="syncingId === `channel-${channel.id}`" @click="syncContent(channel, 'channel')">Sync</UButton>
-                <UButton variant="ghost" size="xs" class="min-h-11" @click="editTags(channel, 'channel')">Tags</UButton>
-                <UButton color="neutral" variant="ghost" size="xs" class="min-h-11" icon="i-heroicons-trash" @click="deleteContent(channel.id, 'channel')">Remove</UButton>
+                <UButton variant="ghost" size="xs" class="min-h-11" @click="openTags(channel, 'channel', channel.channelTitle, $event)">Tags</UButton>
+                <UButton color="neutral" variant="ghost" size="xs" class="min-h-11" icon="i-heroicons-trash" @click="requestRemoveContent(channel.id, 'channel', channel.channelTitle)">Remove</UButton>
               </div>
             </template>
           </UCard>
@@ -356,8 +460,8 @@ function formatPublishedDate(value: string | null): string {
                 <UButton variant="ghost" size="xs" class="min-h-11" @click="showVideoOverrides('playlist', playlist.id, playlist.playlistTitle)">Video overrides</UButton>
                 <UButton v-if="playlist.playlistId?.startsWith('pl:jf:')" to="/admin/jellyfin" variant="ghost" class="min-h-11">Edit Playlist</UButton>
                 <UButton v-else variant="ghost" size="xs" class="min-h-11" :loading="syncingId === `playlist-${playlist.id}`" @click="syncContent(playlist, 'playlist')">Sync</UButton>
-                <UButton variant="ghost" size="xs" class="min-h-11" @click="editTags(playlist, 'playlist')">Tags</UButton>
-                <UButton color="neutral" variant="ghost" size="xs" class="min-h-11" icon="i-heroicons-trash" @click="deleteContent(playlist.id, 'playlist')">Remove</UButton>
+                <UButton variant="ghost" size="xs" class="min-h-11" @click="openTags(playlist, 'playlist', playlist.playlistTitle, $event)">Tags</UButton>
+                <UButton color="neutral" variant="ghost" size="xs" class="min-h-11" icon="i-heroicons-trash" @click="requestRemoveContent(playlist.id, 'playlist', playlist.playlistTitle)">Remove</UButton>
               </div>
             </template>
           </UCard>
@@ -387,8 +491,8 @@ function formatPublishedDate(value: string | null): string {
                 <USelect :model-value="boundPool('video', video.videoId, video.contentRule)" :aria-label="`Time pool for ${video.videoTitle}`" :items="contentRuleOptions" class="min-h-11 min-w-44" size="xs" @update:model-value="updatePoolBinding(video.videoId, 'video', String($event))" />
                 <UButton color="primary" variant="soft" size="xs" class="min-h-11" icon="i-heroicons-megaphone" @click="recommendVideo(video.videoId)">{{ recommendedVideoId === video.videoId ? 'Recommended' : 'Recommend again' }}</UButton>
                 <UButton variant="ghost" size="xs" class="min-h-11" :loading="syncingId === `video-${video.id}`" @click="syncContent(video, 'video')">Sync</UButton>
-                <UButton variant="ghost" size="xs" class="min-h-11" @click="editTags(video, 'video')">Tags</UButton>
-                <UButton color="neutral" variant="ghost" size="xs" class="min-h-11" icon="i-heroicons-trash" @click="deleteContent(video.id, 'video')">Remove</UButton>
+                <UButton variant="ghost" size="xs" class="min-h-11" @click="openTags(video, 'video', video.videoTitle, $event)">Tags</UButton>
+                <UButton color="neutral" variant="ghost" size="xs" class="min-h-11" icon="i-heroicons-trash" @click="requestRemoveContent(video.id, 'video', video.videoTitle)">Remove</UButton>
               </div>
             </template>
           </UCard>

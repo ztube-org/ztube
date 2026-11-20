@@ -31,6 +31,23 @@ async function fixture(page: Page) {
   return state
 }
 
+test('Jellyfin Continue Watching shows resume progress and retains the Cartoon Pool return route', async ({ page }) => {
+  const state = await fixture(page)
+  state.positionSeconds = 96
+  state.unlocks.push('jf:ep1')
+  await page.goto('/cartoon-pool')
+  const shelf = page.getByRole('region', { name: 'Continue Watching' })
+  await expect(shelf).toContainText('1:36 / 10:00')
+  const resume = shelf.getByRole('link', { name: 'Cartoon episode 1' })
+  await resume.click()
+  await expect(page).toHaveURL(/\/watch\?/)
+  const url = new URL(page.url())
+  expect(url.pathname).toBe('/watch')
+  expect(url.searchParams.get('v')).toBe('jf:ep1')
+  expect(url.searchParams.get('pool')).toBe('1')
+  await expect(page.getByRole('heading', { name: 'Cartoon episode 1' })).toBeVisible()
+})
+
 test('Child browses freely, cancels without spending a claim, then confirms one episode and cannot claim another', async ({ page }, testInfo) => {
   const errors: string[] = []
   page.on('pageerror', e => errors.push(e.message))

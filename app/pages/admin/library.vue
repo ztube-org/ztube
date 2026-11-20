@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ActionConfirm, { type Confirmation } from '../../components/ActionConfirm.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { apiFetch } from '../../../src/api'
 import { readVideoDuration } from '../../../src/video-metadata'
@@ -112,8 +113,15 @@ function newPlaylist() {
   playlistId.value = 'new'; playlistTitle.value = ''; thumbnail.value = ''; playlistRevision.value = undefined
   items.value = []; approvals.value = []; childRules.value = {}; childTags.value = {}
 }
+const confirmation = ref<Confirmation | null>(null)
+function requestDeletePlaylist() {
+  confirmation.value = {
+    title: 'Delete Playlist?',
+    description: `Delete “${playlistTitle.value}” and remove access for everyone it’s shared with. Files on WebDAV are kept.`,
+    label: 'Delete Playlist', destructive: true, run: () => act(deletePlaylist),
+  }
+}
 async function deletePlaylist() {
-  if (!confirm(`Delete “${playlistTitle.value}” for everyone? This removes the ZTube playlist and all sharing. Files on WebDAV are kept.`)) return
   await apiFetch(`/api/admin/library-playlists/${playlistId.value}`, { method: 'DELETE', body: { revision: playlistRevision.value } })
   newPlaylist()
   await reload()
@@ -167,6 +175,7 @@ const affectedChildren = computed(() => approvals.value.map(a => children.value.
 
 <template>
   <div class="zt-page space-y-4 library-admin">
+    <ActionConfirm v-model="confirmation" />
     <UButton to="/admin/jellyfin" variant="soft" class="min-h-11">Manage Jellyfin library</UButton>
     <div class="flex flex-wrap items-center justify-between gap-2"><div><NuxtLink to="/admin" class="inline-flex min-h-11 items-center text-sm">← Admin</NuxtLink><h1 class="text-2xl font-bold">Providers & Playlists</h1></div><UButton :disabled="busy" @click="editProvider()">Add WebDAV Provider</UButton></div>
     <p v-if="error" role="alert" class="rounded-lg bg-red-50 p-3 text-red-700">{{ error }}</p>
@@ -192,7 +201,7 @@ const affectedChildren = computed(() => approvals.value.map(a => children.value.
     </section>
     <div class="flex flex-wrap gap-2"><UButton v-for="p in providers" :key="p.id" variant="soft" :disabled="busy" @click="editProvider(p)">{{ p.name }}{{ p.enabled ? '' : ' (disabled)' }} · Edit</UButton></div>
     <section class="zt-panel space-y-3 rounded-xl border p-3" aria-label="Playlist editor">
-      <div class="flex flex-wrap gap-2"><h2 class="mr-auto font-semibold">Playlists</h2><UButton v-if="playlistId !== 'new'" color="error" variant="soft" :disabled="busy" @click="act(deletePlaylist)">Delete Playlist</UButton><UButton variant="soft" :disabled="busy" @click="newPlaylist">New Playlist</UButton></div>
+      <div class="flex flex-wrap gap-2"><h2 class="mr-auto font-semibold">Playlists</h2><UButton v-if="playlistId !== 'new'" color="error" variant="soft" :disabled="busy" @click="requestDeletePlaylist">Delete Playlist</UButton><UButton variant="soft" :disabled="busy" @click="newPlaylist">New Playlist</UButton></div>
       <div class="flex flex-wrap gap-2"><UButton v-for="p in playlists" :key="p.id" :variant="playlistId === p.id ? 'solid' : 'soft'" :disabled="busy" @click="act(() => loadPlaylist(p.id))">{{ p.title }}</UButton></div>
       <div class="grid gap-3 sm:grid-cols-2"><label>Playlist title<input v-model="playlistTitle" /></label><label>Artwork URL (optional)<input v-model="thumbnail" placeholder="https://…" /></label></div>
       <details open class="rounded-lg border p-3">

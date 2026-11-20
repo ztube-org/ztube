@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { apiFetch } from '../../../src/api'
+import ActionConfirm, { type Confirmation } from '../../components/ActionConfirm.vue'
 import AdminNav from '../../components/AdminNav.vue'
 import MediaArtwork from '../../components/MediaArtwork.vue'
 import { formatDuration } from '../../../src/video-ui'
@@ -85,14 +86,37 @@ async function back(index: number) {
   scopes.value = scopes.value.slice(0, index + 1); items.value = []; query.value = ''; nextPage.value = null
   await browse()
 }
+function syncImport(connectionId: string, itemId: string) {
+  return apiFetch<{ imported: number; skipped: number; title: string }>(`/api/admin/jellyfin/servers/${connectionId}/import`, {
+    method: 'POST', body: { itemId },
+  })
+}
 async function importItem(connectionId: string, itemId: string) {
-  const result = await apiFetch<{ imported: number; skipped: number; title: string }>(`/api/admin/jellyfin/servers/${connectionId}/import`, { method: 'POST', body: { itemId } })
+  const result = await syncImport(connectionId, itemId)
   await reload()
   section.value = 'imports'
   notice.value = `${result.title}: ${result.imported} episodes imported${result.skipped ? `; ${result.skipped} unsupported episodes skipped` : ''}. Choose children below to add it to their Cartoon Pool.`
 }
+async function syncAllSeries() {
+  const series = [...imports.value]
+  const failed: string[] = []
+  for (const [index, item] of series.entries()) {
+    notice.value = `Syncing ${index + 1} of ${series.length} · ${item.title}`
+    try { await syncImport(item.serverId, item.itemId) } catch { failed.push(item.title) }
+  }
+  notice.value = `Series sync complete. ${series.length - failed.length} succeeded, ${failed.length} failed.`
+  if (failed.length) notice.value += ` Failed: ${failed.join(', ')}.`
+  await reload()
+}
+const confirmation = ref<Confirmation | null>(null)
+function requestDeleteImport(item: Import) {
+  confirmation.value = {
+    title: 'Delete imported series?',
+    description: `Remove “${item.title}” from ZTube for all Children. Videos in Jellyfin are kept.`,
+    label: 'Delete series', destructive: true, run: () => act(() => deleteImport(item)),
+  }
+}
 async function deleteImport(item: Import) {
-  if (!confirm(`Delete “${item.title}” from ZTube for all children? Videos in Jellyfin are kept.`)) return
   await apiFetch(`/api/admin/jellyfin/imports/${item.id}`, { method: 'DELETE', body: { revision: item.revision } })
   await reload()
   notice.value = `${item.title} deleted from ZTube. Videos in Jellyfin were kept.`
@@ -112,8 +136,12 @@ function syncTime(epoch: number) { return new Date(epoch * 1000).toLocaleString(
 
 <template>
   <div class="zt-page space-y-4 jellyfin-admin">
+    <ActionConfirm v-model="confirmation" />
     <AdminNav />
-    <header class="flex flex-wrap items-center justify-between gap-3"><div><h1 class="text-2xl font-bold">Jellyfin library</h1><p class="text-sm text-[var(--zt-muted)]">{{ imports.length }} imported series &amp; seasons</p></div><UButton @click="section = 'browse'">Import series</UButton></header>
+    <header class="flex flex-wrap items-center justify-between gap-3"><div><h1 class="text-2xl font-bold">Jellyfin library</h1><p class="text-sm text-[var(--zt-muted)]">{{ imports.length }} imported series &amp; seasons</p></div><div class="flex flex-wrap gap-2">
+      <UButton variant="soft" class="min-h-11" :disabled="busy || !imports.length" @click="act(syncAllSeries)">Sync all series</UButton>
+      <UButton class="min-h-11" :disabled="busy" @click="section = 'browse'">Import series</UButton>
+    </div></header>
     <div class="zt-admin-tabs" role="tablist" aria-label="Jellyfin management">
       <button v-for="tab in [{ id: 'imports', label: 'Imported series' }, { id: 'browse', label: 'Browse & import' }, { id: 'connections', label: 'Connections' }]" :key="tab.id" role="tab" :aria-selected="section === tab.id" @click="section = tab.id">{{ tab.label }}</button>
     </div>
@@ -165,7 +193,7 @@ function syncTime(epoch: number) { return new Date(epoch * 1000).toLocaleString(
       <div class="flex flex-wrap items-center justify-between gap-3"><p class="text-sm text-[var(--zt-muted)]">Series update only when you select Sync. Automatic sync is off.</p><UInput v-model="importSearch" aria-label="Search imported series" placeholder="Find a series" /></div>
       <p v-if="!imports.length" class="text-sm text-[var(--zt-muted)]">Use Import series to add your first series, then select who can watch.</p>
       <article v-for="item in filteredImports" :key="item.id" class="zt-panel space-y-3 p-4" :aria-label="item.title">
-        <div class="flex flex-wrap items-center gap-3"><MediaArtwork :src="item.thumbnail" :title="item.title" kind="playlist" compact class="h-16 w-28 shrink-0 rounded-lg" /><div class="min-w-0 flex-1"><h3 class="font-semibold">{{ item.title }}</h3><p class="text-sm text-[var(--zt-muted)]">{{ item.episodeCount }} episodes · Updated {{ syncTime(item.lastSyncedAt) }}</p></div><UButton variant="soft" :disabled="busy || !servers.find(s => s.id === item.serverId)?.enabled" class="min-h-11" @click="act(() => importItem(item.serverId, item.itemId))">Sync</UButton><UButton color="error" variant="ghost" :disabled="busy" :aria-label="`Delete ${item.title}`" @click="act(() => deleteImport(item))">Delete</UButton></div>
+        <div class="flex flex-wrap items-center gap-3"><MediaArtwork :src="item.thumbnail" :title="item.title" kind="playlist" compact class="h-16 w-28 shrink-0 rounded-lg" /><div class="min-w-0 flex-1"><h3 class="font-semibold">{{ item.title }}</h3><p class="text-sm text-[var(--zt-muted)]">{{ item.episodeCount }} episodes · Updated {{ syncTime(item.lastSyncedAt) }}</p></div><UButton variant="soft" :disabled="busy || !servers.find(s => s.id === item.serverId)?.enabled" class="min-h-11" @click="act(() => importItem(item.serverId, item.itemId))">Sync</UButton><UButton color="error" variant="ghost" :disabled="busy" :aria-label="`Delete ${item.title}`" @click="requestDeleteImport(item)">Delete</UButton></div>
         <fieldset :disabled="busy"><legend class="text-sm font-medium">Available to</legend>
           <div class="grid gap-x-4 sm:grid-cols-2"><label v-for="child in children" :key="child.id" class="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" :checked="shared(item.id, child.id)" @change="toggleShare(item, child, $event)" />{{ child.displayName || child.email }}</label></div>
         </fieldset>

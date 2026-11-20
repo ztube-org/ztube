@@ -23,6 +23,31 @@ async function fixture() {
   return { d1, clock, request, asChild() { user = { id: 10, email: 'child@example.com', displayName: null, role: 'non-admin' } } }
 }
 
+test('Admin dashboard scopes balances to each local Viewing Day and shows only live playback', async () => {
+  const { d1, request, clock, asChild } = await fixture()
+  clock.setTime(Date.parse('2026-08-17T01:00:00Z'))
+  const epoch = Math.floor(clock.getTime() / 1000)
+  d1.sqlite.exec(`
+    INSERT INTO daily_usage_summaries (child_id, viewing_day, playback_paused) VALUES (20, '2026-08-17', 1);
+    INSERT INTO playback_sessions (id, child_id, viewing_day, last_state, last_acknowledged_at, lease_expires_at, video_id)
+      VALUES ('live', 10, '2026-08-16', 'playing', ${epoch - 10}, ${epoch + 50}, 'space');
+    INSERT INTO viewing_events (session_id, child_id, video_id, video_title, usage_bucket, authorized_at)
+      VALUES ('live', 10, 'space', 'Space science', 'restricted', ${epoch - 10});
+  `)
+  const dashboard = async () => (await (await request('/api/admin/children')).json() as any).children
+  const [watching, paused] = await dashboard()
+  assert.deepEqual(watching.pools.find((pool: any) => pool.id === 'pool:10:restricted'), {
+    id: 'pool:10:restricted', name: 'General videos', allowanceMinutes: 120, remainingSeconds: 7200 - 301, locked: false,
+  })
+  assert.deepEqual(watching.activePlayback, { watching: true, videoTitle: 'Space science' })
+  assert.equal(paused.policy.reason, 'viewing-pause')
+  assert.equal(paused.pools.find((pool: any) => pool.id === 'pool:20:restricted').allowanceMinutes, 60)
+  clock.setTime(clock.getTime() + 60_000)
+  assert.deepEqual((await dashboard())[0].activePlayback, { watching: false, videoTitle: null })
+  asChild()
+  assert.equal((await request('/api/admin/children')).status, 403)
+})
+
 test('Admin sees whole-minute buckets and can extend each independently', async () => {
   const { request } = await fixture()
   const initial = await (await request('/api/admin/children/10/watch-time')).json() as any

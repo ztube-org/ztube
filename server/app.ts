@@ -1,3 +1,4 @@
+import { adminViewingSummaries } from './modules/admin-viewing.ts'
 import { syncJobs } from './modules/content-sync-store.ts'
 import { seriesNavigation } from './modules/series-navigation.ts'
 import { database } from './database/client.ts'
@@ -104,16 +105,19 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.get('/api/admin/children', async c => {
     requireRole(c.get('user'), 'admin')
     const db = database(c.env.DB)
+    c.header('Cache-Control', 'no-store')
     const admins = adminEmails(c.env)
     const [list, channelCounts, playlistCounts, videoCounts] = await Promise.all([
-      db.query.children.findMany(),
+      db.select({ child: schema.children, settings: schema.childTimeSettings }).from(schema.children)
+        .leftJoin(schema.childTimeSettings, eq(schema.childTimeSettings.childId, schema.children.id)),
       db.select({ childId: schema.allowedChannels.childId, count: count() }).from(schema.allowedChannels).groupBy(schema.allowedChannels.childId),
       db.select({ childId: schema.allowedPlaylists.childId, count: count() }).from(schema.allowedPlaylists).groupBy(schema.allowedPlaylists.childId),
       db.select({ childId: schema.allowedVideos.childId, count: count() }).from(schema.allowedVideos).groupBy(schema.allowedVideos.childId),
     ])
     const counts = (rows: Array<{ childId: number; count: number }>) => new Map(rows.map(row => [row.childId, row.count]))
     const channels = counts(channelCounts), playlists = counts(playlistCounts), videos = counts(videoCounts)
-    const children = list.map(child => ({ ...child, isAdmin: admins.has(child.email), stats: {
+    const viewing = await adminViewingSummaries(db, list.map(({ child, settings }) => ({ id: child.id, settings })), now())
+    const children = list.map(({ child }) => ({ ...child, ...viewing.get(child.id)!, isAdmin: admins.has(child.email), stats: {
       channels: channels.get(child.id) ?? 0, playlists: playlists.get(child.id) ?? 0, videos: videos.get(child.id) ?? 0,
     } }))
     return c.json({ children })

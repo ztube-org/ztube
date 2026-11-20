@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import ActionConfirm, { type Confirmation } from '../../components/ActionConfirm.vue'
 import LibraryNav from '../../components/LibraryNav.vue'
 import { apiFetch } from '../../../src/api'
 import type { ApprovedVideo, BrowseResponse, SourceVideosResponse } from '../../../src/domain'
@@ -42,8 +43,16 @@ async function refresh() {
   } catch (cause) { if (!disposed) loadError.value = cause instanceof Error ? cause.message : 'Unable to load your videos' }
   finally { if (!disposed) loading.value = false }
 }
+const confirmation = ref<Confirmation | null>(null)
+function requestFavoriteChange(video: ApprovedVideo) {
+  if (!data.value?.favoriteVideoIds.includes(video.videoId)) return toggleFavorite(video)
+  confirmation.value = {
+    title: 'Remove from Favorites?',
+    description: `Remove “${video.videoTitle}” from your Favorites.`,
+    label: 'Remove Favorite', destructive: true, run: () => toggleFavorite(video),
+  }
+}
 async function toggleFavorite(video: ApprovedVideo) {
-  if (data.value?.favoriteVideoIds.includes(video.videoId) && !confirm(`Remove “${video.videoTitle}” from Favorites?`)) return
   if (await favorite.toggle(video.videoId) && data.value) {
     data.value.favorites = data.value.favoriteVideoIds.includes(video.videoId)
       ? [...data.value.favorites.filter(item => item.videoId !== video.videoId), video]
@@ -79,6 +88,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(debounce) })
 
 <template>
   <div class="zt-page">
+    <ActionConfirm v-model="confirmation" />
     <h1 class="sr-only">YouTube</h1>
     <header class="zt-library-toolbar">
       <LibraryNav />
@@ -105,7 +115,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(debounce) })
       </section>
       <section v-if="favorites.length" id="favorites" class="mb-6 scroll-mt-16">
         <h2 class="zt-section-title">Favorites</h2>
-        <div class="zt-video-shelf"><VideoCard v-for="video in favorites" :key="video.videoId" :video="video" :to="`/watch?v=${video.videoId}`" :favorite="true" :pending="favoritePending.has(video.videoId)" :unavailable="unavailable(video)" @favorite="toggleFavorite(video)" /></div>
+        <div class="zt-video-shelf"><VideoCard v-for="video in favorites" :key="video.videoId" :video="video" :to="`/watch?v=${video.videoId}`" :favorite="true" :pending="favoritePending.has(video.videoId)" :unavailable="unavailable(video)" @favorite="requestFavoriteChange(video)" /></div>
       </section>
     </template>
 
@@ -133,7 +143,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(debounce) })
     </section>
     <section v-if="displayedVideos.length || (searching && results?.nextPage != null)" class="mb-6">
       <h2 class="zt-section-title">Videos</h2>
-      <div class="zt-video-grid"><VideoCard v-for="video in displayedVideos" :key="video.videoId" :video="video" :to="`/watch?v=${video.videoId}`" :favorite="data?.favoriteVideoIds.includes(video.videoId) ?? false" :pending="favoritePending.has(video.videoId)" :unavailable="unavailable(video)" show-date @favorite="toggleFavorite(video)" /></div>
+      <div class="zt-video-grid"><VideoCard v-for="video in displayedVideos" :key="video.videoId" :video="video" :to="`/watch?v=${video.videoId}`" :favorite="data?.favoriteVideoIds.includes(video.videoId) ?? false" :pending="favoritePending.has(video.videoId)" :unavailable="unavailable(video)" show-date @favorite="requestFavoriteChange(video)" /></div>
       <UButton v-if="searching && results?.nextPage != null" class="mt-4" variant="soft" :loading="searchLoading" @click="searchVideos(true)">Load more results</UButton>
     </section>
     <p v-if="searching && !searchLoading && !searchError && !filteredChannels.length && !filteredPlaylists.length && !displayedVideos.length && results?.nextPage == null" class="py-10 text-center text-[var(--zt-muted)]">No content matches this search. Try another word or clear the filters.</p>

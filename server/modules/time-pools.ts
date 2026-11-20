@@ -17,6 +17,11 @@ type Database = ReturnType<typeof drizzle<typeof schema>>
 const minutes = v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(1440))
 const poolInput = v.object({ name: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(40)), weekdayMinutes: minutes, weekendMinutes: minutes, requiresClaim: v.optional(v.boolean(), false) })
 
+export function timePoolBalance(allowanceMinutes: number, usedSeconds: number, extensionMinutes: number, unlocked: boolean) {
+  const remainingSeconds = Math.max(0, (unlocked ? 86400 : (allowanceMinutes + extensionMinutes) * 60) - usedSeconds)
+  return { remainingSeconds, locked: remainingSeconds === 0 }
+}
+
 export async function poolStatuses(db: Database, childId: number, instant: Date): Promise<TimePoolStatus[]> {
   const settings = await ensureTimeSettings(db, childId)
   const day = viewingDayAt(instant, settings.timeZone, settings)
@@ -30,8 +35,7 @@ export async function poolStatuses(db: Database, childId: number, instant: Date)
     const usedSeconds = used?.usedSeconds ?? 0
     const extensionMinutes = used?.extensionMinutes ?? 0
     const unlocked = used?.unlocked ?? false
-    const remainingSeconds = Math.max(0, (unlocked ? 86400 : (allowanceMinutes + extensionMinutes) * 60) - usedSeconds)
-    return { ...pool, allowanceMinutes, usedSeconds, extensionMinutes, unlocked, remainingSeconds, locked: remainingSeconds === 0 }
+    return { ...pool, allowanceMinutes, usedSeconds, extensionMinutes, unlocked, ...timePoolBalance(allowanceMinutes, usedSeconds, extensionMinutes, unlocked) }
   })
 }
 
@@ -43,8 +47,7 @@ export async function poolBalance(db: Database, childId: number, poolId: string 
   const { pool } = row
   const allowanceMinutes = day.isWeekend ? pool.weekendMinutes : pool.weekdayMinutes
   const usedSeconds = row.usedSeconds ?? 0, extensionMinutes = row.extensionMinutes ?? 0, unlocked = row.unlocked ?? false
-  const remainingSeconds = Math.max(0, (unlocked ? 86400 : (allowanceMinutes + extensionMinutes) * 60) - usedSeconds)
-  return { ...pool, allowanceMinutes, usedSeconds, extensionMinutes, unlocked, remainingSeconds, locked: remainingSeconds === 0 }
+  return { ...pool, allowanceMinutes, usedSeconds, extensionMinutes, unlocked, ...timePoolBalance(allowanceMinutes, usedSeconds, extensionMinutes, unlocked) }
 }
 
 export async function cartoonPoolId(db: Database, childId: number) {

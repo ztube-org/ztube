@@ -48,12 +48,47 @@ test('Admin saves Jellyfin without connecting, imports a season and explicitly s
   await page.reload()
   await expect(page.getByRole('checkbox', { name: 'Explorer', exact: true })).toBeChecked()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-  page.once('dialog', dialog => dialog.dismiss())
+  const dialog = page.getByRole('dialog', { name: 'Delete imported series?' })
   await page.getByRole('button', { name: 'Delete Adventure · Season 1' }).click()
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toBeHidden()
   expect(imported).toBe(true)
-  page.once('dialog', dialog => dialog.accept())
   await page.getByRole('button', { name: 'Delete Adventure · Season 1' }).click()
+  await dialog.getByRole('button', { name: 'Delete series', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Delete Adventure · Season 1' })).toHaveCount(0)
   expect(imported).toBe(false)
   expect(errors).toEqual([])
+})
+
+test('Sync all series continues sequentially after a failed import', async ({ page }) => {
+  const imports = ['broken', 'ready'].map(itemId => ({
+    id: `pl:jf:${itemId}`, revision: 1, title: itemId, serverId: 'home', itemId, episodeCount: 3, lastSyncedAt: 1789646400,
+  }))
+  const requests: string[] = []
+  let finishFirst!: () => void
+  const firstResponse = new Promise<void>(resolve => { finishFirst = resolve })
+  await page.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname
+    if (path === '/api/auth/session') return route.fulfill({ json: { user: { id: 1, role: 'admin', email: 'admin@example.com' } } })
+    if (path === '/api/admin/jellyfin/servers') return route.fulfill({ json: { servers: [{ id: 'home', enabled: true }] } })
+    if (path === '/api/admin/jellyfin/imports') return route.fulfill({ json: { imports, approvals: [] } })
+    if (path === '/api/admin/children') return route.fulfill({ json: { children: [] } })
+    if (path.endsWith('/import')) {
+      const { itemId } = route.request().postDataJSON()
+      requests.push(itemId)
+      if (itemId === 'broken') {
+        await firstResponse
+        return route.fulfill({ status: 502, json: { message: 'Jellyfin unavailable' } })
+      }
+    }
+    return route.fulfill({ json: {} })
+  })
+  await page.goto('/admin/jellyfin')
+  await page.getByRole('button', { name: 'Sync all series' }).click()
+  try {
+    await expect(page.getByRole('status')).toContainText('Syncing 1 of 2')
+    await expect.poll(() => requests).toEqual(['broken'])
+  } finally { finishFirst() }
+  await expect(page.getByRole('status')).toContainText('1 succeeded, 1 failed. Failed: broken.')
+  expect(requests).toEqual(['broken', 'ready'])
 })
