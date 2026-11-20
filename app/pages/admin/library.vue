@@ -178,8 +178,8 @@ const affectedChildren = computed(() => approvals.value.map(a => children.value.
     <ActionConfirm v-model="confirmation" />
     <UButton to="/admin/jellyfin" variant="soft" class="min-h-11">Manage Jellyfin library</UButton>
     <div class="flex flex-wrap items-center justify-between gap-2"><div><NuxtLink to="/admin" class="inline-flex min-h-11 items-center text-sm">← Admin</NuxtLink><h1 class="text-2xl font-bold">Providers & Playlists</h1></div><UButton :disabled="busy" @click="editProvider()">Add WebDAV Provider</UButton></div>
-    <p v-if="error" role="alert" class="rounded-lg bg-red-50 p-3 text-red-700">{{ error }}</p>
-    <p v-if="notice" role="status" class="rounded-lg bg-blue-50 p-3 text-blue-800">{{ notice }}</p>
+    <p v-if="error" role="alert" class="rounded-lg bg-error/10 p-3 text-[var(--zt-error)]">{{ error }}</p>
+    <p v-if="notice" role="status" class="rounded-lg bg-[var(--zt-blue-soft)] p-3 text-[var(--zt-blue)]">{{ notice }}</p>
     <section v-if="provider" class="zt-panel space-y-3 rounded-xl border p-3" aria-label="Provider settings">
       <h2 class="font-semibold">{{ provider.id === 'new' ? 'Add' : 'Edit' }} WebDAV Provider</h2>
       <div class="grid gap-3 sm:grid-cols-2">
@@ -227,17 +227,17 @@ const affectedChildren = computed(() => approvals.value.map(a => children.value.
         <div v-for="(item, index) in items" :key="`${item.providerId}:${item.path}`" class="flex flex-wrap items-end gap-2 rounded-lg border p-2">
           <span class="self-center font-medium">{{ index + 1 }}</span><label class="min-w-40 flex-1">Episode title<input v-model="item.title" /></label><label class="w-28">Season<input v-model="item.season" /></label><span class="self-center text-sm tabular-nums">{{ item.reading ? 'Reading details…' : formatDuration(item.duration) }}</span>
           <UButton variant="ghost" :aria-label="`Move episode ${index + 1} up`" :disabled="index === 0" @click="move(index, -1)">↑</UButton><UButton variant="ghost" :aria-label="`Move episode ${index + 1} down`" :disabled="index === items.length - 1" @click="move(index, 1)">↓</UButton><UButton variant="ghost" :disabled="busy" @click="act(() => preview(item))">Preview</UButton><UButton variant="ghost" @click="items.splice(index, 1)">Remove</UButton>
-          <div v-if="item.metadataError" class="flex w-full items-center gap-2 text-sm text-red-700"><span role="alert" class="flex-1">{{ item.metadataError }}</span><UButton v-if="!item.duration" variant="soft" :disabled="busy" :aria-label="`Retry reading ${item.title}`" @click="act(() => readDetails(item))">Retry</UButton></div>
+          <div v-if="item.metadataError" class="flex w-full items-center gap-2 text-sm text-[var(--zt-error)]"><span role="alert" class="flex-1">{{ item.metadataError }}</span><UButton v-if="!item.duration" variant="soft" :disabled="busy" :aria-label="`Retry reading ${item.title}`" @click="act(() => readDetails(item))">Retry</UButton></div>
         </div>
       </div>
-      <p v-if="affectedChildren" class="text-sm text-amber-700">Saving updates the shared Playlist for: {{ affectedChildren }}.</p>
+      <p v-if="affectedChildren" class="text-sm text-[var(--zt-warning)]">Saving updates the shared Playlist for: {{ affectedChildren }}.</p>
       <p v-if="saveProblem" id="playlist-save-problem" role="status" class="text-sm text-[var(--zt-muted)]">{{ saveProblem }}</p>
       <UButton :disabled="busy || Boolean(saveProblem)" :aria-describedby="saveProblem ? 'playlist-save-problem' : undefined" @click="act(savePlaylist)">Save Playlist</UButton>
     </section>
     <section v-if="playlistId !== 'new'" class="zt-panel space-y-3 rounded-xl border p-3" aria-label="Share Playlist">
       <h2 class="font-semibold">Share saved Playlist</h2><p class="text-sm text-[var(--zt-muted)]">Each Child has an independent Content Rule and tags. Adding a Provider never grants access.</p>
       <div v-for="child in children" :key="child.id" class="flex flex-wrap items-end gap-2 border-t pt-2">
-        <span class="min-w-40 flex-1 self-center">{{ child.displayName || child.email }} <span v-if="approvals.some(a => a.childId === child.id)" class="text-sm text-green-700">· Shared</span></span>
+        <span class="min-w-40 flex-1 self-center">{{ child.displayName || child.email }} <span v-if="approvals.some(a => a.childId === child.id)" class="text-sm text-[var(--zt-success)]">· Shared</span></span>
         <label>Content Rule<select :value="childRules[child.id] ?? 'restricted'" @change="childRules[child.id] = ($event.target as HTMLSelectElement).value as 'restricted' | 'exempt'"><option value="restricted">Restricted</option><option value="exempt">Allowance-exempt</option></select></label><label>Tags, comma separated<input v-model="childTags[child.id]" /></label>
         <UButton :disabled="busy" @click="act(() => share(child.id, true))">{{ approvals.some(a => a.childId === child.id) ? 'Update sharing' : 'Share' }}</UButton><UButton v-if="approvals.some(a => a.childId === child.id)" variant="soft" :disabled="busy" @click="act(() => share(child.id, false))">Remove access</UButton>
       </div>

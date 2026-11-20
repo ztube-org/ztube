@@ -28,5 +28,5 @@ export const router = createRouter({
 router.beforeEach(async to => {
   const user = await fetchCurrentUser()
   if (to.path === '/') return user.role === 'admin' ? '/admin' : '/browse'
-  if (to.meta.role && to.meta.role !== user.role) return '/'
+  if (to.meta.role && to.meta.role !== user.role) return '/browse'
 })

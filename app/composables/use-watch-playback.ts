@@ -1,5 +1,5 @@
 import { createNativePlayer, nativePlaybackCapabilities } from '../../src/native-player'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { apiFetch, ApiError } from '../../src/api'
 import type { EpisodeClaimPrompt, UsageBucket } from '../../src/domain'
 import { authorizeAndCreatePlayer, createPlaybackReporter, createYouTubePlayer, type PlaybackState, type YouTubePlayer } from '../../src/youtube-player'
@@ -34,7 +34,7 @@ export function useWatchPlayback(videoId: string) {
   const claimError = ref('')
   let reporter: ReturnType<typeof createPlaybackReporter> | null = null
   let disposed = false
-  const abort = new AbortController()
+  let attempt: AbortController | null = null
 
   const warning = computed(() => {
     if (remainingSeconds.value === null) return null
@@ -61,13 +61,28 @@ export function useWatchPlayback(videoId: string) {
   })
 
   async function startPlayback() {
+    if (disposed || attempt) return
+    const controller = new AbortController()
+    attempt = controller
+    const isCurrent = () => attempt === controller
     playbackError.value = null
+    playbackStopped.value = false
+    remainingSeconds.value = null
+    await nextTick()
+    if (!isCurrent()) return
+
+    const stopWithError = (error: Error) => {
+      if (!isCurrent()) return
+      playbackError.value = error.message
+      stopPlayback()
+    }
     try {
       let authorization!: PlaybackAuthorization
-      player.value = await authorizeAndCreatePlayer(
+      const createdPlayer = await authorizeAndCreatePlayer(
         videoId,
         async requestedVideoId => {
-          const response = await apiFetch<{ authorization: PlaybackAuthorization }>('/api/child/playback-authorizations', { method: 'POST', body: { videoId: requestedVideoId } })
+          const response = await apiFetch<{ authorization: PlaybackAuthorization }>('/api/child/playback-authorizations', { method: 'POST', signal: controller.signal, body: { videoId: requestedVideoId } })
+          if (!isCurrent()) throw new Error('Playback page changed')
           authorization = response.authorization
           claimPrompt.value = null
           usageBucket.value = authorization.usageBucket
@@ -76,28 +91,27 @@ export function useWatchPlayback(videoId: string) {
           videoTitle.value = authorization.videoTitle
           videoDescription.value = authorization.videoDescription
           channelTitle.value = authorization.channelTitle
-          if (disposed) throw new Error('Playback page changed')
           reporter = createPlaybackReporter({
             initialRemainingSeconds: authorization.remainingSeconds,
             initialLeaseDeadline: Date.parse(authorization.leaseExpiresAt) || undefined,
             heartbeat: (sequence, state, positionSeconds, keepalive) => apiFetch(`/api/child/playback-authorizations/${authorization.sessionId}/heartbeats`, { method: 'POST', keepalive, body: { sequence, state, positionSeconds } }),
             pause: () => player.value?.pauseVideo?.(),
             onBlocked: reason => {
+              if (!isCurrent()) return
               if (reason === 'background') playbackError.value = 'Playback stopped while ZTube was in the background. Tap Try again to continue.'
               else if (reason === 'connection') playbackError.value = 'Playback stopped because your viewing time could not be checked. Check your connection and try again.'
               else playbackStopped.value = true
-              abort.abort()
-              player.value?.destroy?.()
+              stopPlayback()
             },
             position: () => player.value?.getCurrentTime?.() ?? 0,
-            onRemaining: seconds => { remainingSeconds.value = seconds },
+            onRemaining: seconds => { if (isCurrent()) remainingSeconds.value = seconds },
           })
           if (!await reporter.connect()) throw new Error(playbackError.value ?? 'Playback could not be authorized')
         },
         () => {
-          if (disposed || abort.signal.aborted) throw new Error('Playback page changed')
+          if (!isCurrent()) throw new Error('Playback page changed')
           if (authorization.playerKind === 'native') return Promise.resolve(createNativePlayer('youtube-player', {
-            signal: abort.signal, resumeAt: authorization.resumeAt,
+            signal: controller.signal, resumeAt: authorization.resumeAt,
             resolveUrl: async () => {
               const path = `/api/child/playback-authorizations/${authorization.sessionId}/media`
               // Let a late response arrive so its exact Remux session can be
@@ -112,29 +126,27 @@ export function useWatchPlayback(videoId: string) {
                 void apiFetch(`${path}/${encodeURIComponent(media.cleanupId)}/stop`, { method: 'POST', keepalive: true }).catch(() => undefined)
               } }
             },
-            onStateChange: state => { reporter?.setState(state) },
-            onError: error => { reporter?.finish(); playbackError.value = error.message },
+            onStateChange: state => { if (isCurrent()) reporter?.setState(state) },
+            onError: stopWithError,
           }))
           return createYouTubePlayer('youtube-player', {
             videoId,
-            signal: abort.signal,
+            signal: controller.signal,
             onReady: readyPlayer => {
               if (authorization.resumeAt >= 30) readyPlayer.seekTo?.(authorization.resumeAt, true)
             },
             onStateChange: (state: PlaybackState) => {
-              reporter?.setState(state)
+              if (isCurrent()) reporter?.setState(state)
             },
-            onError: error => { reporter?.finish(); playbackError.value = error.message },
+            onError: stopWithError,
           })
         },
       )
-      if (disposed) {
-        player.value.destroy?.()
-        return
-      }
+      if (isCurrent()) player.value = createdPlayer
+      else createdPlayer.destroy?.()
     } catch (error) {
-      reporter?.finish()
-      if (disposed) return
+      if (!isCurrent()) return
+      stopPlayback()
       if (error instanceof ApiError && error.response.code === 'episode-claim-required') {
         claimPrompt.value = error.response.claim as EpisodeClaimPrompt
       } else playbackError.value ??= error instanceof Error ? error.message : 'Playback could not be authorized'
@@ -159,11 +171,22 @@ export function useWatchPlayback(videoId: string) {
     } finally { claimPending.value = false }
   }
 
+  function stopPlayback() {
+    const controller = attempt
+    attempt = null
+    reporter?.finish()
+    reporter = null
+    controller?.abort()
+    player.value?.destroy?.()
+    player.value = null
+  }
+  function retryPlayback() {
+    if (!playbackError.value) return
+    return startPlayback()
+  }
   function leave() {
     disposed = true
-    reporter?.finish()
-    abort.abort()
-    player.value?.destroy?.()
+    stopPlayback()
   }
   function restore(event: PageTransitionEvent) {
     if (event.persisted) window.location.reload()
@@ -174,5 +197,5 @@ export function useWatchPlayback(videoId: string) {
     window.removeEventListener('pageshow', restore)
   })
 
-  return { favorite, playbackError, playbackStopped, remainingSeconds, usageBucket, timePoolName, videoTitle, videoDescription, channelTitle, warning, formatRemaining, claimPrompt, claimPending, claimError, confirmClaim }
+  return { favorite, playbackError, playbackStopped, remainingSeconds, usageBucket, timePoolName, videoTitle, videoDescription, channelTitle, warning, formatRemaining, retryPlayback, claimPrompt, claimPending, claimError, confirmClaim }
 }

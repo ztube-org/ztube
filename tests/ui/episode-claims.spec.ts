@@ -71,7 +71,7 @@ test('Child browses freely, cancels without spending a claim, then confirms one 
   await dialog.getByRole('button', { name: 'Unlock episode', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Cartoon episode 1', exact: true })).toBeVisible()
-  await expect(page.getByText('30:00 Cartoon Time remaining')).toBeVisible()
+  await expect(page.getByRole('banner').getByRole('group', { name: 'Cartoon Time remaining' })).toContainText('30:00 left')
   expect(state.confirmations).toEqual([{ videoId: 'jf:ep1', confirmed: true, viewingDay: '2026-09-17' }])
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Cartoon episode 1', exact: true })).toBeVisible()

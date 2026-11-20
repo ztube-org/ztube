@@ -145,7 +145,7 @@ function syncTime(epoch: number) { return new Date(epoch * 1000).toLocaleString(
     <div class="zt-admin-tabs" role="tablist" aria-label="Jellyfin management">
       <button v-for="tab in [{ id: 'imports', label: 'Imported series' }, { id: 'browse', label: 'Browse & import' }, { id: 'connections', label: 'Connections' }]" :key="tab.id" role="tab" :aria-selected="section === tab.id" @click="section = tab.id">{{ tab.label }}</button>
     </div>
-    <p v-if="error" role="alert" class="rounded-lg border border-red-300 p-3 text-sm text-red-600">{{ error }}</p>
+    <p v-if="error" role="alert" class="rounded-lg border border-error/40 p-3 text-sm text-[var(--zt-error)]">{{ error }}</p>
     <p v-if="notice" role="status" class="rounded-lg border border-[var(--zt-border)] p-3 text-sm">{{ notice }}</p>
     <div v-show="section === 'connections'" class="space-y-4">
     <div class="flex justify-end"><UButton :disabled="busy" @click="edit()">Add Jellyfin server</UButton></div>

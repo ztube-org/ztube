@@ -229,7 +229,16 @@ test('backgrounding removes native playback and requires a fresh check to contin
   })
   await expect(page.locator('video')).toHaveCount(0)
   await expect(page.getByRole('alert')).toContainText('in the background')
-  await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
+  const retry = page.getByRole('button', { name: 'Try again', exact: true })
+  await expect(retry).toBeVisible()
+  await page.evaluate(() => {
+    delete (document as unknown as Record<string, unknown>).hidden
+    document.documentElement.dataset.retryMarker = 'original-document'
+  })
+  await retry.click()
+  await expect(page.locator('video')).toHaveCount(1)
+  await expect(page.locator('html')).toHaveAttribute('data-retry-marker', 'original-document')
+  await expect(page.getByRole('alert')).toHaveCount(0)
 })
 
 test('native playback recovers accounting when playing and seeked events are missed', async ({ page }) => {

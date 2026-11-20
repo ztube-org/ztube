@@ -27,13 +27,14 @@ export async function apiFetch<T>(url: string, init?: Omit<RequestInit, 'body'> 
     options.headers = { ...options.headers, 'Content-Type': 'application/json' }
   } else if (typeof body === 'string') options.body = body
   const response = await fetch(url, options)
+  const html = response.headers.get('content-type')?.includes('text/html')
+  const sessionExpired = response.status === 401 || (html && (response.redirected || response.status === 403))
+  if (sessionExpired) invalidateSession()
   const fallback = `Request failed (${response.status})`
   let responseBody: unknown
   try {
     responseBody = await response.json()
   } catch {
-    const html = response.headers.get('content-type')?.includes('text/html')
-    const sessionExpired = response.status === 401 || (html && (response.redirected || response.status === 403))
     const message = sessionExpired ? 'Your session may have expired. Reload the page to sign in again.'
       : response.ok ? 'The server returned an unexpected response. Reload the page and try again.' : fallback
     throw new ApiError(message, response.status, {})
@@ -56,16 +57,43 @@ export function useApi<T>(url: string) {
   return { data, error: readonly(error), refresh }
 }
 
+const SESSION_TTL_MS = 60_000
 const currentUser = ref<CurrentUser | null>(null)
-export async function fetchCurrentUser() {
-  const response = await apiFetch<{ user: CurrentUser }>('/api/auth/session')
-  currentUser.value = response.user
-  return response.user
+let sessionExpiresAt = 0
+let sessionRequest: Promise<CurrentUser> | null = null
+
+function invalidateSession() {
+  currentUser.value = null
+  sessionExpiresAt = 0
+  sessionRequest = null
 }
+
+export function fetchCurrentUser({ force = false } = {}): Promise<CurrentUser> {
+  if (force) sessionExpiresAt = 0
+  if (sessionRequest) return sessionRequest
+  if (currentUser.value && Date.now() < sessionExpiresAt) return Promise.resolve(currentUser.value)
+
+  const request = apiFetch<{ user: CurrentUser }>('/api/auth/session', { cache: 'no-store' })
+    .then(({ user }) => {
+      if (sessionRequest !== request) return fetchCurrentUser()
+      currentUser.value = user
+      sessionExpiresAt = Date.now() + SESSION_TTL_MS
+      return currentUser.value
+    })
+    .finally(() => {
+      if (sessionRequest === request) sessionRequest = null
+    })
+  sessionRequest = request
+  return request
+}
+
 export function useAuth() {
   return {
     user: readonly(currentUser),
     fetchSession: fetchCurrentUser,
-    logout: () => { window.location.assign('/cdn-cgi/access/logout') },
+    logout: () => {
+      invalidateSession()
+      window.location.assign('/cdn-cgi/access/logout')
+    },
   }
 }

@@ -7,14 +7,17 @@ test.afterEach(({ page }) => { expect(pageErrors.get(page)).toEqual([]) })
 const video = (i: number) => ({ videoId: `video-${i}`, videoTitle: i === 59 ? 'Deep ocean discovery' : `Science experiment ${i}`, videoThumbnail: '/fixture-thumbnail.svg', duration: 600, channelTitle: 'Science', publishedAt: null, contentRule: 'restricted', isAvailable: true, positionSeconds: 100, tags: ['Science'] })
 const videos = Array.from({ length: 60 }, (_, i) => video(i))
 async function fixture(page: Page) {
-  const state = { failBrowse: false, failFavorite: false, failSource: false, emptySearchPage: false, blocked: false, favorites: ['video-0'], heartbeats: [] as Array<{ state: string; positionSeconds: number }>, breakUntil: null as string | null }
+  const state = { sessionCalls: 0, remainingSeconds: 1800, failBrowse: false, failFavorite: false, failSource: false, emptySearchPage: false, blocked: false, favorites: ['video-0'], heartbeats: [] as Array<{ state: string; positionSeconds: number }>, breakUntil: null as string | null }
   const watchTime = { restricted: { remainingSeconds: 1800, locked: false }, exempt: { remainingSeconds: 3600, locked: false } }
   const policy = () => ({ blocked: state.blocked, reason: state.blocked ? 'required-break' : null, breakUntil: state.breakUntil })
   const source = { id: 1, title: 'Science', thumbnail: '/fixture-thumbnail.svg', tags: ['Science'], contentRule: 'restricted', isAvailable: true }
   await page.route('**/api/**', async route => {
     const url = new URL(route.request().url())
     let response: unknown = {}
-    if (url.pathname === '/api/auth/session') response = { user: { id: 1, email: 'child@example.test', displayName: 'Explorer', avatarUrl: null, role: 'non-admin' } }
+    if (url.pathname === '/api/auth/session') {
+      state.sessionCalls++
+      response = { user: { id: 1, email: 'child@example.test', displayName: 'Explorer', avatarUrl: null, role: 'non-admin' } }
+    }
     else if (url.pathname === '/api/child/recommendations/count') response = { count: 3 }
     else if (url.pathname === '/api/child/watch-time') response = { ...watchTime, policy: policy() }
     else if (url.pathname === '/api/child/browse') {
@@ -26,7 +29,7 @@ async function fixture(page: Page) {
       const matches = videos.filter(v => v.videoTitle.toLowerCase().includes(query))
       const offset = Number(url.searchParams.get('page') ?? 0) * 50
       if (state.emptySearchPage && url.pathname === '/api/child/search') return route.fulfill({ json: { videos: offset ? [video(59)] : [], nextPage: offset ? null : 1, favoriteVideoIds: state.favorites, watchTime, policy: policy() } })
-      response = { channel: source, videos: matches.slice(offset, offset + 50), nextPage: offset + 50 < matches.length ? offset / 50 + 1 : null, favoriteVideoIds: state.favorites, watchTime, policy: policy() }
+      response = { ...(url.pathname.includes('/playlist/') ? { playlist: source } : { channel: source }), videos: matches.slice(offset, offset + 50), nextPage: offset + 50 < matches.length ? offset / 50 + 1 : null, favoriteVideoIds: state.favorites, watchTime, policy: policy() }
     } else if (url.pathname.startsWith('/api/child/favorites')) {
       if (state.failFavorite) return route.fulfill({ status: 503, json: { message: 'Unable to save Favorite' } })
       if (route.request().method() === 'DELETE') state.favorites = state.favorites.filter(id => id !== url.pathname.split('/').at(-1))
@@ -34,11 +37,11 @@ async function fixture(page: Page) {
       response = { success: true }
     } else if (url.pathname === '/api/child/playback-authorizations') {
       const id = route.request().postDataJSON().videoId
-      response = { authorization: { sessionId: id, remainingSeconds: 1800, usageBucket: 'restricted', resumeAt: 45, favorite: state.favorites.includes(id), videoTitle: videos.find(v => v.videoId === id)?.videoTitle, videoDescription: 'Introduction.\n\nChapter one.\n\nChapter two.\n\nThe last chapter.', channelTitle: 'Science' } }
+      response = { authorization: { sessionId: id, remainingSeconds: state.remainingSeconds, usageBucket: 'restricted', resumeAt: 45, favorite: state.favorites.includes(id), videoTitle: videos.find(v => v.videoId === id)?.videoTitle, videoDescription: 'Introduction.\n\nChapter one.\n\nChapter two.\n\nThe last chapter.', channelTitle: 'Science' } }
     } else if (url.pathname.endsWith('/heartbeats')) {
       const payload = route.request().postDataJSON()
       state.heartbeats.push(payload)
-      response = { sequence: payload.sequence, authorized: true, remainingSeconds: 1800 }
+      response = { sequence: payload.sequence, authorized: true, remainingSeconds: state.remainingSeconds }
     }
     await route.fulfill({ json: response })
   })
@@ -64,6 +67,21 @@ test('iPad rotation enlarges the player and related videos can be expanded and p
   await expect(page.getByRole('complementary').getByText('Deep ocean discovery')).toBeVisible()
   await page.getByText('Description', { exact: true }).click()
   await expect(page.getByText(/The last chapter/)).toBeVisible()
+})
+
+test('the watch header shows a low balance and YouTube playlists offer Next video', async ({ page }) => {
+  const state = await fixture(page)
+  state.remainingSeconds = 120
+  await page.setViewportSize({ width: 1180, height: 820 })
+  await page.goto('/watch?v=video-0&playlist=1')
+  const countdown = page.getByRole('banner').getByRole('group', { name: 'Daily Allowance remaining' })
+  await expect(countdown).toContainText(/\d+:\d{2} left/)
+  await expect(countdown).toHaveCSS('color', 'rgb(133, 68, 6)')
+  await expect(page.getByRole('link', { name: 'Choose season / episode' })).toHaveCount(0)
+  await page.getByRole('link', { name: 'Next video · Science experiment 1' }).click()
+  await expect(page.getByRole('heading', { name: 'Science experiment 1', exact: true })).toBeVisible()
+  await expect(countdown).toBeInViewport()
+  expect(state.sessionCalls).toBe(1)
 })
 
 test('home prioritizes Continue Watching, keeps recommendations in one row, and preserves touch targets', async ({ page }, testInfo) => {

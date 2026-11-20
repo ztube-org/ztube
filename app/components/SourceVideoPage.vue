@@ -44,7 +44,7 @@ const label = computed(() => props.kind === 'channel' ? 'Channel' : isJellyfin.v
     </section>
     <UInput v-model="search" icon="i-heroicons-magnifying-glass" placeholder="Search all videos in this source" aria-label="Search all videos in this source" class="mb-4 w-full" />
     <div v-if="loadError" role="alert" class="mb-4 flex items-center gap-3"><span>{{ loadError }}</span><UButton variant="soft" @click="refresh">Retry</UButton></div>
-    <p v-if="favoriteError" role="alert" class="mb-3 text-sm text-red-600">{{ favoriteError }}</p>
+    <p v-if="favoriteError" role="alert" class="mb-3 text-sm text-[var(--zt-error)]">{{ favoriteError }}</p>
     <div v-if="loading" role="status" class="py-8 text-center text-[var(--zt-muted)]">Loading videos…</div>
     <template v-else-if="source?.curated">
       <label v-if="seasons.length" class="mb-3 flex items-center gap-2">Season<select v-model="selectedSeason" class="min-h-11 rounded-lg border bg-[var(--zt-surface)] px-3"><option v-for="name in seasons" :key="name" :value="name">{{ name }}</option></select></label>
@@ -53,7 +53,7 @@ const label = computed(() => props.kind === 'channel' ? 'Channel' : isJellyfin.v
           <NuxtLink :to="`/watch?v=${video.videoId}&playlist=${sourceId}`" class="flex min-h-16 min-w-0 flex-1 items-center gap-3 rounded-lg" :aria-disabled="Boolean(blocked(video))" @click.capture="blocked(video) && $event.preventDefault()">
             <span class="w-8 shrink-0 text-center text-lg font-semibold tabular-nums">{{ (video.position ?? 0) + 1 }}</span>
             <MediaArtwork :src="video.videoThumbnail" :title="video.videoTitle" compact class="hidden h-14 w-24 shrink-0 rounded sm:block" />
-            <div class="min-w-0"><p class="font-semibold">{{ video.videoTitle }}</p><p class="text-sm text-[var(--zt-muted)]">{{ video.season }} · {{ formatDuration(video.duration ?? 0) }}<span v-if="video.positionSeconds"> · Resume at {{ formatDuration(video.positionSeconds) }}</span></p><p v-if="video.requiresClaim" class="mt-1 flex items-center gap-1 text-sm font-medium" :class="isUnlocked(video.videoId) ? 'text-[var(--zt-blue)]' : 'text-amber-700 dark:text-amber-300'"><UIcon :name="isUnlocked(video.videoId) ? 'i-heroicons-lock-open' : 'i-heroicons-lock-closed'" />{{ isUnlocked(video.videoId) ? 'Unlocked' : '1 credit to unlock' }}</p><p v-if="blocked(video)" class="text-sm text-amber-700">{{ blocked(video) }}</p></div>
+            <div class="min-w-0"><p class="font-semibold">{{ video.videoTitle }}</p><p class="text-sm text-[var(--zt-muted)]">{{ video.season }} · {{ formatDuration(video.duration ?? 0) }}<span v-if="video.positionSeconds"> · Resume at {{ formatDuration(video.positionSeconds) }}</span></p><p v-if="video.requiresClaim" class="mt-1 flex items-center gap-1 text-sm font-medium" :class="isUnlocked(video.videoId) ? 'text-[var(--zt-blue)]' : 'text-[var(--zt-warning)]'"><UIcon :name="isUnlocked(video.videoId) ? 'i-heroicons-lock-open' : 'i-heroicons-lock-closed'" />{{ isUnlocked(video.videoId) ? 'Unlocked' : '1 credit to unlock' }}</p><p v-if="blocked(video)" class="text-sm text-[var(--zt-warning)]">{{ blocked(video) }}</p></div>
           </NuxtLink>
           <UButton :icon="data?.favoriteVideoIds.includes(video.videoId) ? 'i-heroicons-star-solid' : 'i-heroicons-star'" variant="ghost" class="min-h-11 min-w-11" :aria-label="`Favorite ${video.videoTitle}`" :loading="favoritePending.has(video.videoId)" @click="toggleFavorite(video.videoId)" />
         </div>

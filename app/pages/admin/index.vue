@@ -69,8 +69,8 @@ function viewingStatus(child: AdminChild) {
       <UButton class="min-h-11" variant="ghost" color="neutral" :disabled="pending" icon="i-heroicons-arrow-path"
         @click="refreshDashboard">Refresh</UButton>
     </header>
-    <p v-if="error" role="alert" class="mb-3 rounded-lg border border-red-300 p-2 text-sm text-red-600">{{ error.message }}</p>
-    <p v-if="actionError" role="alert" class="mb-3 rounded-lg border border-red-300 p-2 text-sm text-red-600">{{ actionError }}</p>
+    <p v-if="error" role="alert" class="mb-3 rounded-lg border border-error/40 p-2 text-sm text-[var(--zt-error)]">{{ error.message }}</p>
+    <p v-if="actionError" role="alert" class="mb-3 rounded-lg border border-error/40 p-2 text-sm text-[var(--zt-error)]">{{ actionError }}</p>
     <p v-if="notice" role="status" class="mb-3 rounded-lg border border-[var(--zt-border)] p-2 text-sm">{{ notice }}</p>
     <p v-if="!data && !error" role="status" class="text-sm text-[var(--zt-muted)]">Loading children…</p>
     <div class="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">

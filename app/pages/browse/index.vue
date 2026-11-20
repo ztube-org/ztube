@@ -101,7 +101,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(debounce) })
       <UButton v-for="tag in allTags" :key="tag" :variant="selectedTag === tag ? 'soft' : 'ghost'" color="neutral" class="shrink-0 min-h-11" @click="selectedTag = tag">{{ tag }}</UButton>
     </div>
     <div v-if="loadError" role="alert" class="mb-4 flex items-center gap-3"><span>{{ loadError }}</span><UButton variant="soft" @click="refresh">Retry</UButton></div>
-    <p v-if="favoriteError" role="alert" class="mb-3 text-sm text-red-600">{{ favoriteError }}</p>
+    <p v-if="favoriteError" role="alert" class="mb-3 text-sm text-[var(--zt-error)]">{{ favoriteError }}</p>
     <p v-if="loading" role="status" class="py-10 text-center text-[var(--zt-muted)]">Loading your videos…</p>
 
     <template v-if="!searching">
@@ -127,7 +127,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(debounce) })
         <NuxtLink v-for="channel in filteredChannels" :key="channel.id" :to="`/browse/channel/${channel.id}`" class="zt-channel-link">
           <UAvatar :src="channel.channelThumbnail || undefined" :alt="channel.channelTitle" class="h-12 w-12 shrink-0" />
           <p class="truncate text-sm font-medium">{{ channel.channelTitle }}</p>
-          <p v-if="!channel.isAvailable" class="text-xs text-amber-700 dark:text-amber-300">Tap to reload videos</p>
+          <p v-if="!channel.isAvailable" class="text-xs text-[var(--zt-warning)]">Tap to reload videos</p>
         </NuxtLink>
       </div>
     </section>
@@ -137,7 +137,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(debounce) })
         <NuxtLink v-for="playlist in filteredPlaylists" :key="playlist.id" :to="`/browse/playlist/${playlist.id}`" class="zt-video-card">
           <div class="zt-video-card__media"><MediaArtwork :src="playlist.playlistThumbnail" :title="playlist.playlistTitle" kind="playlist" /><span class="zt-duration">{{ playlist.playlistId?.startsWith('pl:jf:') ? 'Series' : 'Playlist' }}</span></div>
           <p class="mt-2 font-semibold leading-5 line-clamp-2">{{ playlist.playlistTitle }}</p>
-          <p v-if="!playlist.isAvailable" class="text-xs text-amber-700 dark:text-amber-300">Tap to reload videos</p>
+          <p v-if="!playlist.isAvailable" class="text-xs text-[var(--zt-warning)]">Tap to reload videos</p>
         </NuxtLink>
       </div>
     </section>

@@ -105,7 +105,7 @@ onMounted(() => { void loadLibrary(); if (isSource.value) void loadSource() })
     </div>
     <div v-else class="mb-4 flex items-center gap-2"><UButton :to="base" variant="ghost" icon="i-heroicons-arrow-left" class="min-h-11">Back to library</UButton><h1 class="truncate text-xl font-bold">{{ sourceTitle }}</h1></div>
     <ViewingStatus v-if="status" :status="status" class="mb-4" />
-    <p v-if="error" role="alert" class="mb-3 text-red-600">{{ error }} <UButton variant="soft" @click="isSource ? loadSource() : loadLibrary()">Retry</UButton></p>
+    <p v-if="error" role="alert" class="mb-3 text-[var(--zt-error)]">{{ error }} <UButton variant="soft" @click="isSource ? loadSource() : loadLibrary()">Retry</UButton></p>
     <p v-if="loading && !(isSource ? source : library)" role="status">Loading preview…</p>
 
     <template v-if="isSource">
@@ -115,7 +115,7 @@ onMounted(() => { void loadLibrary(); if (isSource.value) void loadSource() })
           <div class="zt-video-card__media"><MediaArtwork :src="video.videoThumbnail" :title="video.videoTitle" /><span v-if="video.duration" class="zt-duration">{{ formatDuration(video.duration) }}</span></div>
           <p class="mt-2 font-semibold leading-5 line-clamp-2">{{ video.videoTitle }}</p><p class="text-sm text-[var(--zt-muted)]">{{ video.channelTitle }}</p>
           <p v-if="video.requiresClaim" class="text-xs">{{ source.unlockedVideoIds?.includes(video.videoId) ? 'Unlocked' : 'Requires 1 unlock credit' }}</p>
-          <p v-if="videoUnavailable(video, source)" class="text-xs text-amber-700">{{ videoUnavailable(video, source) }}</p>
+          <p v-if="videoUnavailable(video, source)" class="text-xs text-[var(--zt-warning)]">{{ videoUnavailable(video, source) }}</p>
         </article>
       </div>
       <p v-else-if="source && !loading" class="py-6 text-[var(--zt-muted)]">No synced videos match this selection.</p>
@@ -134,7 +134,7 @@ onMounted(() => { void loadLibrary(); if (isSource.value) void loadSource() })
       <section v-if="!search && !tag && library?.favorites.length" class="mb-6"><h2 class="zt-section-title">Favorites</h2><div class="zt-video-grid"><article v-for="video in library.favorites.filter(visible)" :key="video.videoId" class="zt-video-card"><div class="zt-video-card__media"><MediaArtwork :src="video.videoThumbnail" :title="video.videoTitle" /></div><p class="mt-2 font-semibold">{{ video.videoTitle }}</p></article></div></section>
       <section v-if="channels.length" class="mb-6"><h2 class="zt-section-title">Channels</h2><div class="zt-channel-grid"><NuxtLink v-for="item in channels" :key="item.id" :to="destination('channel', item.id)" class="zt-channel-link"><UAvatar :src="item.channelThumbnail || undefined" :alt="item.channelTitle" class="h-12 w-12 shrink-0" /><p class="truncate text-sm font-medium">{{ item.channelTitle }}</p></NuxtLink></div></section>
       <section v-if="playlists.length" class="mb-6"><h2 class="zt-section-title">Playlists</h2><div class="zt-video-grid"><NuxtLink v-for="item in playlists" :key="item.id" :to="destination('playlist', item.id)" class="zt-video-card"><div class="zt-video-card__media"><MediaArtwork :src="item.playlistThumbnail" :title="item.playlistTitle" kind="playlist" /></div><p class="mt-2 font-semibold">{{ item.playlistTitle }}</p></NuxtLink></div></section>
-      <section v-if="filteredVideos.length" class="mb-6"><h2 class="zt-section-title">Videos</h2><div class="zt-video-grid"><article v-for="video in filteredVideos" :key="video.videoId" class="zt-video-card"><div class="zt-video-card__media"><MediaArtwork :src="video.videoThumbnail" :title="video.videoTitle" /><span v-if="video.duration" class="zt-duration">{{ formatDuration(video.duration) }}</span></div><p class="mt-2 font-semibold leading-5 line-clamp-2">{{ video.videoTitle }}</p><p class="text-sm text-[var(--zt-muted)]">{{ video.channelTitle }}</p><p v-if="videoUnavailable(video, library)" class="text-xs text-amber-700">{{ videoUnavailable(video, library) }}</p></article></div><UButton v-if="results?.nextPage != null" variant="soft" class="mt-4 min-h-11" :loading="searching" @click="searchVideos(true)">Load more results</UButton></section>
+      <section v-if="filteredVideos.length" class="mb-6"><h2 class="zt-section-title">Videos</h2><div class="zt-video-grid"><article v-for="video in filteredVideos" :key="video.videoId" class="zt-video-card"><div class="zt-video-card__media"><MediaArtwork :src="video.videoThumbnail" :title="video.videoTitle" /><span v-if="video.duration" class="zt-duration">{{ formatDuration(video.duration) }}</span></div><p class="mt-2 font-semibold leading-5 line-clamp-2">{{ video.videoTitle }}</p><p class="text-sm text-[var(--zt-muted)]">{{ video.channelTitle }}</p><p v-if="videoUnavailable(video, library)" class="text-xs text-[var(--zt-warning)]">{{ videoUnavailable(video, library) }}</p></article></div><UButton v-if="results?.nextPage != null" variant="soft" class="mt-4 min-h-11" :loading="searching" @click="searchVideos(true)">Load more results</UButton></section>
       <p v-if="library && !channels.length && !playlists.length && !filteredVideos.length && !searching" class="py-8 text-center text-[var(--zt-muted)]">No content matches this selection.</p>
     </template>
   </div>

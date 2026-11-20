@@ -46,7 +46,7 @@ void act(async () => {})
 <template>
   <section class="mb-5 space-y-3" aria-label="Time pools">
     <div class="flex flex-wrap items-center justify-between gap-2"><div><h2 class="text-xl font-semibold">Time pools</h2><p class="text-sm text-[var(--zt-muted)]">Shared by content in the same pool, independent for each Child. All pools reset at local midnight.</p></div><UButton variant="soft" :loading="busy" @click="act(async () => {})">Refresh pools</UButton></div>
-    <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p><p v-if="notice" role="status" class="text-sm">{{ notice }}</p>
+    <p v-if="error" role="alert" class="text-sm text-[var(--zt-error)]">{{ error }}</p><p v-if="notice" role="status" class="text-sm">{{ notice }}</p>
     <div class="grid gap-3 md:grid-cols-3">
       <form v-for="pool in drafts" :key="pool.id" :aria-label="`${pool.name} time pool`" class="zt-panel space-y-3 rounded-xl border p-3" @submit.prevent="act(() => save(pool))">
         <h3 class="text-lg font-semibold">{{ pool.name }}</h3>

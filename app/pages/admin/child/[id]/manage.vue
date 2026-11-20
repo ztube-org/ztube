@@ -281,7 +281,7 @@ function formatPublishedDate(value: string | null): string {
           </div>
           <p id="tag-limit" class="text-xs text-[var(--zt-muted)]">{{ selectedTags.length }} of 8 selected · 24 characters per tag</p>
         </form>
-        <p v-if="tagError" role="alert" class="rounded-lg border border-red-300 p-2 text-sm text-red-600">{{ tagError }}</p>
+        <p v-if="tagError" role="alert" class="rounded-lg border border-error/40 p-2 text-sm text-[var(--zt-error)]">{{ tagError }}</p>
       </template>
       <template #footer>
         <UButton color="neutral" variant="soft" class="min-h-11 min-w-11" :disabled="tagsSaving" @click="tagsOpen = false">Cancel</UButton>
@@ -289,12 +289,12 @@ function formatPublishedDate(value: string | null): string {
       </template>
     </UModal>
     <AdminNav />
-    <div class="mb-5 flex items-center gap-3 border-b border-gray-200 pb-4">
-      <NuxtLink to="/admin" class="flex min-h-11 min-w-11 items-center justify-center rounded-full text-gray-700 hover:bg-gray-100" aria-label="Back to accounts">
+    <div class="mb-5 flex items-center gap-3 border-b border-[var(--zt-border)] pb-4">
+      <NuxtLink to="/admin" class="flex min-h-11 min-w-11 items-center justify-center rounded-full text-[var(--zt-text)] hover:bg-[var(--zt-hover)]" aria-label="Back to accounts">
         <UIcon name="i-heroicons-arrow-left" class="h-5 w-5" />
       </NuxtLink>
       <div class="min-w-0 flex-1">
-        <p class="text-sm font-medium text-[#065fd4]">Child settings</p>
+        <p class="text-sm font-medium text-[var(--zt-blue)]">Child settings</p>
         <h1 class="truncate text-2xl font-bold tracking-tight">{{ data?.child?.displayName || data?.child?.email }}</h1>
       </div>
       <UButton :to="`/admin/child/${childId}/preview`" variant="soft" class="min-h-11 shrink-0">Preview viewer</UButton>
@@ -306,7 +306,7 @@ function formatPublishedDate(value: string | null): string {
     <section v-show="section === 'profile'" id="panel-profile" role="tabpanel" aria-labelledby="tab-profile">
 
     <div class="mt-3 grid gap-4 lg:grid-cols-2">
-      <UCard class="rounded-2xl ring-1 ring-gray-200">
+      <UCard class="rounded-2xl ring-1 ring-[var(--zt-border)]">
         <template #header><h2 class="font-semibold">Child profile</h2></template>
         <form class="grid grid-cols-[auto_1fr] items-end gap-3" @submit.prevent="saveProfile">
           <UAvatar :src="profileForm.avatarUrl" :alt="profileForm.displayName || data?.child?.email" size="xl" />
@@ -318,15 +318,15 @@ function formatPublishedDate(value: string | null): string {
           <UButton type="submit" size="sm" :loading="profileSaving" class="min-h-11 justify-self-end">Save profile</UButton>
         </form>
       </UCard>
-      <UCard class="rounded-2xl ring-1 ring-gray-200">
+      <UCard class="rounded-2xl ring-1 ring-[var(--zt-border)]">
         <template #header>
-          <div><h2 class="font-semibold">Copy Approved Content</h2><p class="text-xs text-gray-500">Copies approvals, Cartoon Pool membership, default pool choices, and tags. The target Child’s Time Pools and unlock requirements apply; custom Pool Bindings and budgets are not copied.</p></div>
+          <div><h2 class="font-semibold">Copy Approved Content</h2><p class="text-xs text-[var(--zt-muted)]">Copies approvals, Cartoon Pool membership, default pool choices, and tags. The target Child’s Time Pools and unlock requirements apply; custom Pool Bindings and budgets are not copied.</p></div>
         </template>
         <div class="flex items-end gap-3">
           <UFormField label="Copy from Child" class="flex-1"><USelect v-model="copySourceChildId" :items="copyOptions" class="min-h-11 w-full" placeholder="Select a Child" /></UFormField>
           <UButton class="min-h-11" :disabled="!copySourceChildId" :loading="copying" @click="requestCopyContent">Copy</UButton>
         </div>
-        <p v-if="copyError" role="alert" class="mt-3 rounded-lg border border-red-300 p-2 text-sm text-red-600">{{ copyError }}</p>
+        <p v-if="copyError" role="alert" class="mt-3 rounded-lg border border-error/40 p-2 text-sm text-[var(--zt-error)]">{{ copyError }}</p>
         <p v-if="copyNotice" role="status" class="mt-3 text-sm">{{ copyNotice }}</p>
       </UCard>
     </div>
@@ -335,17 +335,17 @@ function formatPublishedDate(value: string | null): string {
     <section v-show="section === 'time'" id="panel-time" role="tabpanel" aria-labelledby="tab-time">
 
     <div v-if="watchTime" class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--zt-border)] px-3 py-2"><div><p class="font-medium">Today · {{ watchTime.viewingDay }}</p><p class="text-sm text-[var(--zt-muted)]">{{ watchTime.policy?.reason === 'viewing-pause' ? 'Viewing is paused' : 'Pause stops playback across all time pools' }}</p></div><UButton class="min-h-11" :color="watchTime.policy?.reason === 'viewing-pause' ? 'neutral' : 'warning'" :disabled="interventionSaving" @click="setViewingPause(watchTime.policy?.reason !== 'viewing-pause')">{{ watchTime.policy?.reason === 'viewing-pause' ? 'Resume viewing' : 'Pause viewing today' }}</UButton></div>
-    <p v-if="timeError" role="alert" class="mb-3 rounded-lg border border-red-300 p-2 text-sm text-red-600">{{ timeError }}</p>
+    <p v-if="timeError" role="alert" class="mb-3 rounded-lg border border-error/40 p-2 text-sm text-[var(--zt-error)]">{{ timeError }}</p>
     <TimePoolManager :child-id="childId" @loaded="poolData = $event" />
     <details class="mb-4 rounded-xl border border-[var(--zt-border)] px-3"><summary class="min-h-12 cursor-pointer content-center font-medium">Unlock credits</summary><CartoonPoolSettings :child-id="childId" :pools="poolData?.pools ?? []" :playlists="data?.playlists ?? []" /></details>
 
     <details class="mb-4 rounded-xl border border-[var(--zt-border)] px-3"><summary class="min-h-12 cursor-pointer content-center font-medium">Viewing hours &amp; breaks</summary>
     <div class="grid gap-4">
-    <UCard class="rounded-2xl ring-1 ring-gray-200">
+    <UCard class="rounded-2xl ring-1 ring-[var(--zt-border)]">
       <template #header>
         <div>
           <h2 class="text-lg font-semibold">Viewing routine</h2>
-          <p class="text-sm text-gray-500">Viewing hours and breaks apply across every time pool.</p>
+          <p class="text-sm text-[var(--zt-muted)]">Viewing hours and breaks apply across every time pool.</p>
         </div>
       </template>
       <form class="grid gap-3 sm:grid-cols-2" @submit.prevent="saveTimeSettings()">
@@ -360,8 +360,8 @@ function formatPublishedDate(value: string | null): string {
         <div class="flex items-end justify-end">
           <UButton type="submit" class="min-h-11" :loading="timeSaving">Save viewing routine</UButton>
         </div>
-        <UAlert v-if="timeSaved" color="green" title="Viewing routine saved" class="md:col-span-2" />
-        <p v-if="timeData?.viewingDay" class="text-sm text-gray-500 md:col-span-2">
+        <UAlert v-if="timeSaved" color="success" title="Viewing routine saved" class="md:col-span-2" />
+        <p v-if="timeData?.viewingDay" class="text-sm text-[var(--zt-muted)] md:col-span-2">
           Current Viewing Day: {{ timeData.viewingDay.localDate }} ·
           {{ timeData.viewingDay.isWeekend ? 'Weekend' : 'Weekday' }} pool allowances apply.
         </p>
@@ -375,14 +375,14 @@ function formatPublishedDate(value: string | null): string {
     </section>
     <section v-show="section === 'content'" id="panel-content" role="tabpanel" aria-labelledby="tab-content">
     <div class="flex flex-wrap items-center justify-between gap-3"><div><h2 class="text-xl font-semibold">Approved content</h2><p class="text-sm text-[var(--zt-muted)]">Add YouTube links here. Manage imported series in the Jellyfin library.</p></div><UButton to="/admin/jellyfin" variant="soft">Jellyfin library</UButton></div>
-    <p v-if="contentError" role="alert" class="my-3 rounded-lg border border-red-300 p-2 text-sm text-red-600">{{ contentError }}</p>
+    <p v-if="contentError" role="alert" class="my-3 rounded-lg border border-error/40 p-2 text-sm text-[var(--zt-error)]">{{ contentError }}</p>
     <section class="my-5 rounded-xl border border-[var(--zt-border)] p-3" aria-label="Child Jellyfin access">
       <h3 class="font-semibold">Jellyfin</h3><p v-if="!jellyfinPlaylists.length" class="py-2 text-sm text-[var(--zt-muted)]">No shared series. Choose this child in the Jellyfin library to grant access.</p>
-      <div v-for="item in jellyfinPlaylists" :key="item.id" class="flex items-center justify-between gap-3 border-t border-[var(--zt-border)] py-2"><div class="min-w-0"><p class="font-medium">{{ item.playlistTitle }}</p><p class="text-sm text-[var(--zt-muted)]">{{ item.cartoonPool ? 'Uses the cartoon library time pool and unlock credits' : 'Approved for this child' }}</p></div><UButton color="neutral" variant="ghost" @click="deleteContent(item.id, 'playlist')">Remove access</UButton></div>
+      <div v-for="item in jellyfinPlaylists" :key="item.id" class="flex items-center justify-between gap-3 border-t border-[var(--zt-border)] py-2"><div class="min-w-0"><p class="font-medium">{{ item.playlistTitle }}</p><p class="text-sm text-[var(--zt-muted)]">{{ item.cartoonPool ? 'Uses the cartoon library time pool and unlock credits' : 'Approved for this child' }}</p></div><UButton color="neutral" variant="ghost" class="min-h-11" @click="requestRemoveContent(item.id, 'playlist', item.playlistTitle)">Remove access</UButton></div>
     </section>
     <h3 class="text-lg font-semibold">YouTube</h3>
     <!-- Add Content Form -->
-    <UCard class="my-5 rounded-2xl ring-1 ring-gray-200">
+    <UCard class="my-5 rounded-2xl ring-1 ring-[var(--zt-border)]">
       <form @submit.prevent="addContent" class="flex flex-col gap-3 sm:flex-row">
         <UInput
           v-model="addUrl"
@@ -395,11 +395,11 @@ function formatPublishedDate(value: string | null): string {
           Add
         </UButton>
       </form>
-      <UAlert v-if="addError" color="red" :title="addError" class="mt-4" />
+      <UAlert v-if="addError" color="error" :title="addError" class="mt-4" />
     </UCard>
 
     <div class="mb-4 text-sm text-[var(--zt-muted)]">
-      <p class="font-semibold text-gray-900">Viewing time for approved content</p>
+      <p class="font-semibold text-[var(--zt-text)]">Viewing time for approved content</p>
       <p class="mt-1">Choose a time pool for each channel, playlist, or video. Video bindings take priority over playlists, then channels. Conflicting bindings at the same level require an explicit video binding.</p>
     </div>
 
@@ -410,23 +410,23 @@ function formatPublishedDate(value: string | null): string {
     </div>
 
     <!-- Content Tabs -->
-    <UTabs class="rounded-2xl bg-white p-3 ring-1 ring-gray-200 sm:p-5" :items="[
+    <UTabs class="rounded-2xl bg-[var(--zt-surface)] p-3 ring-1 ring-[var(--zt-border)] sm:p-5" :items="[
       { label: `Channels (${data?.channels?.length || 0})`, slot: 'channels' },
       { label: `Playlists (${visiblePlaylists.length})`, slot: 'playlists' },
       { label: `Videos (${visibleVideos.length})`, slot: 'videos' },
     ]">
       <template #channels>
-        <div v-if="!filteredChannels.length" class="text-center py-8 text-gray-500">
+        <div v-if="!filteredChannels.length" class="text-center py-8 text-[var(--zt-muted)]">
           No matching channels
         </div>
         <div v-else class="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <UCard v-for="channel in filteredChannels" :key="channel.id" class="rounded-xl ring-1 ring-gray-200" :class="{ 'opacity-50': !channel.isAvailable }">
+          <UCard v-for="channel in filteredChannels" :key="channel.id" class="rounded-xl ring-1 ring-[var(--zt-border)]" :class="{ 'opacity-50': !channel.isAvailable }">
             <div class="flex items-center gap-3">
               <UAvatar :src="channel.channelThumbnail" :alt="channel.channelTitle" size="lg" />
               <div class="flex-1 min-w-0">
                 <p class="font-medium truncate">{{ channel.channelTitle }}</p>
-                <p v-if="!channel.isAvailable" class="text-xs text-red-500">Unavailable</p>
-                <p class="text-xs text-gray-500">{{ syncLabel(channel) }}</p>
+                <p v-if="!channel.isAvailable" class="text-xs text-[var(--zt-error)]">Unavailable</p>
+                <p class="text-xs text-[var(--zt-muted)]">{{ syncLabel(channel) }}</p>
               </div>
             </div>
             <div v-if="channel.tags?.length" class="mt-2 flex flex-wrap gap-1"><UBadge v-for="tag in channel.tags" :key="tag" color="neutral" variant="soft">{{ tag }}</UBadge></div>
@@ -444,15 +444,15 @@ function formatPublishedDate(value: string | null): string {
       </template>
 
       <template #playlists>
-        <div v-if="!filteredPlaylists.length" class="text-center py-8 text-gray-500">
+        <div v-if="!filteredPlaylists.length" class="text-center py-8 text-[var(--zt-muted)]">
           No matching playlists
         </div>
         <div v-else class="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <UCard v-for="playlist in filteredPlaylists" :key="playlist.id" class="rounded-xl ring-1 ring-gray-200" :class="{ 'opacity-50': !playlist.isAvailable }">
+          <UCard v-for="playlist in filteredPlaylists" :key="playlist.id" class="rounded-xl ring-1 ring-[var(--zt-border)]" :class="{ 'opacity-50': !playlist.isAvailable }">
             <img :src="playlist.playlistThumbnail" :alt="playlist.playlistTitle" class="mb-2 h-20 w-36 rounded-lg object-cover" />
             <p class="font-medium truncate">{{ playlist.playlistTitle }}</p>
-            <p v-if="!playlist.isAvailable" class="text-xs text-red-500">Unavailable</p>
-            <p class="text-xs text-gray-500">{{ syncLabel(playlist) }}</p>
+            <p v-if="!playlist.isAvailable" class="text-xs text-[var(--zt-error)]">Unavailable</p>
+            <p class="text-xs text-[var(--zt-muted)]">{{ syncLabel(playlist) }}</p>
             <div v-if="playlist.tags?.length" class="mt-2 flex flex-wrap gap-1"><UBadge v-for="tag in playlist.tags" :key="tag" color="neutral" variant="soft">{{ tag }}</UBadge></div>
             <template #footer>
               <div class="flex flex-wrap items-center gap-2">
@@ -469,11 +469,11 @@ function formatPublishedDate(value: string | null): string {
       </template>
 
       <template #videos>
-        <div v-if="!filteredVideos.length" class="text-center py-8 text-gray-500">
+        <div v-if="!filteredVideos.length" class="text-center py-8 text-[var(--zt-muted)]">
           No matching videos
         </div>
         <div v-else class="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <UCard v-for="video in filteredVideos" :key="video.videoId" class="rounded-xl ring-1 ring-gray-200" :class="{ 'opacity-50': !video.isAvailable }">
+          <UCard v-for="video in filteredVideos" :key="video.videoId" class="rounded-xl ring-1 ring-[var(--zt-border)]" :class="{ 'opacity-50': !video.isAvailable }">
             <div class="relative">
               <img :src="video.videoThumbnail" :alt="video.videoTitle" class="h-20 w-36 rounded-lg object-cover" />
               <span v-if="video.duration" class="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1 rounded">
@@ -481,10 +481,10 @@ function formatPublishedDate(value: string | null): string {
               </span>
             </div>
             <p class="font-medium truncate mt-2">{{ video.videoTitle }}</p>
-            <p class="text-sm text-gray-500 truncate">{{ video.channelTitle }}</p>
-            <p v-if="video.publishedAt" class="text-sm text-gray-500">{{ formatPublishedDate(video.publishedAt) }}</p>
-            <p v-if="!video.isAvailable" class="text-xs text-red-500">Unavailable</p>
-            <p class="text-xs text-gray-500">{{ syncLabel(video) }}</p>
+            <p class="text-sm text-[var(--zt-muted)] truncate">{{ video.channelTitle }}</p>
+            <p v-if="video.publishedAt" class="text-sm text-[var(--zt-muted)]">{{ formatPublishedDate(video.publishedAt) }}</p>
+            <p v-if="!video.isAvailable" class="text-xs text-[var(--zt-error)]">Unavailable</p>
+            <p class="text-xs text-[var(--zt-muted)]">{{ syncLabel(video) }}</p>
             <div v-if="video.tags?.length" class="mt-2 flex flex-wrap gap-1"><UBadge v-for="tag in video.tags" :key="tag" color="neutral" variant="soft">{{ tag }}</UBadge></div>
             <template #footer>
               <div class="flex flex-wrap items-center gap-2">
@@ -505,13 +505,13 @@ function formatPublishedDate(value: string | null): string {
         <div class="flex items-center justify-between">
           <div>
             <h2 class="font-semibold">Video-specific time pools</h2>
-            <p class="text-sm text-gray-500">{{ overrideSource.title }} · These overrides do not create duplicate video cards.</p>
+            <p class="text-sm text-[var(--zt-muted)]">{{ overrideSource.title }} · These overrides do not create duplicate video cards.</p>
           </div>
           <UButton variant="ghost" @click="overrideSource = null">Close</UButton>
         </div>
       </template>
       <p v-if="overrideLoading">Loading videos…</p>
-      <p v-else-if="!overrideVideos.length" class="text-gray-500">No videos are cached yet. Use Sync on the content card and try again.</p>
+      <p v-else-if="!overrideVideos.length" class="text-[var(--zt-muted)]">No videos are cached yet. Use Sync on the content card and try again.</p>
       <div v-else class="divide-y">
         <div v-for="video in overrideVideos" :key="video.videoId" class="flex items-center gap-3 py-3">
           <img :src="video.videoThumbnail" :alt="video.videoTitle" class="h-12 w-20 rounded object-cover" />
@@ -524,15 +524,15 @@ function formatPublishedDate(value: string | null): string {
 
     </section>
     <section v-show="section === 'activity'" id="panel-activity" role="tabpanel" aria-labelledby="tab-activity">
-    <UCard class="my-5 rounded-2xl ring-1 ring-gray-200">
+    <UCard class="my-5 rounded-2xl ring-1 ring-[var(--zt-border)]">
       <template #header>
         <div class="flex items-center justify-between gap-3">
-          <div><h2 class="font-semibold">Daily Usage Summary</h2><p class="text-xs text-gray-500">Total watch time by day, in minutes.</p></div>
+          <div><h2 class="font-semibold">Daily Usage Summary</h2><p class="text-xs text-[var(--zt-muted)]">Total watch time by day, in minutes.</p></div>
           <USelect v-model="usageDays" :items="[{ label: '7 days', value: 7 }, { label: '30 days', value: 30 }]" class="min-h-11 w-28" />
         </div>
       </template>
-      <p v-if="usageError" role="alert" class="text-sm text-red-600">{{ usageError }} <UButton variant="ghost" class="min-h-11" @click="refreshUsage">Retry</UButton></p>
-      <p v-else-if="usageLoading" class="text-sm text-gray-500">Loading usage…</p>
+      <p v-if="usageError" role="alert" class="text-sm text-[var(--zt-error)]">{{ usageError }} <UButton variant="ghost" class="min-h-11" @click="refreshUsage">Retry</UButton></p>
+      <p v-else-if="usageLoading" class="text-sm text-[var(--zt-muted)]">Loading usage…</p>
       <DailyUsageChart v-else-if="usage" :days="usage.days" />
     </UCard>
     <ViewingEvents :key="childId" :child-id="childId" />

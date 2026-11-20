@@ -71,7 +71,7 @@ async function save() {
       </div>
       <p class="text-sm text-[var(--zt-muted)]">Fix an accidental unlock by granting another credit. Unused extra credits expire at this Child’s local midnight; daily settings and viewing time stay the same.</p>
       <p v-if="grantNotice" role="status" class="text-sm">{{ grantNotice }}</p>
-      <p v-if="grantError" role="alert" class="text-sm text-red-600">{{ grantError }}</p>
+      <p v-if="grantError" role="alert" class="text-sm text-[var(--zt-error)]">{{ grantError }}</p>
       <div v-if="creditLoadError" role="alert" class="flex items-center gap-2 text-sm"><span>{{ creditLoadError.message }}</span><UButton variant="soft" :disabled="granting" @click="refreshCredits().catch(() => undefined)">Refresh credits</UButton></div>
     </section>
     <form v-if="data && !loadError" class="space-y-3" @submit.prevent="save">
@@ -89,7 +89,7 @@ async function save() {
       </fieldset>
       <p class="text-sm text-[var(--zt-muted)]">One credit permanently unlocks one episode for this Child. Unused credits expire at local midnight. Unlocked episodes can be watched again without another credit; viewing still uses the selected time pool and requires Approved Content.</p>
       <div class="flex items-center gap-3"><UButton type="submit" :loading="saving" :disabled="granting" class="min-h-11">Save unlock settings</UButton><span v-if="saved" role="status" class="text-sm">Unlock settings saved.</span></div>
-      <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
+      <p v-if="error" role="alert" class="text-sm text-[var(--zt-error)]">{{ error }}</p>
     </form>
     <p v-else-if="!loadError" role="status">Loading unlock settings…</p>
   </UCard>
