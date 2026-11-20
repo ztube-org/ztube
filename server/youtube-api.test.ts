@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { fetchChannelMetadata, fetchVideoMetadata, YouTubeApiError } from './utils/youtube-api.ts'
+import { fetchChannelMetadata, fetchPlaylistVideosPage, fetchVideoMetadata, YouTubeApiError } from './utils/youtube-api.ts'
 
 test('reports an invalid YouTube API key instead of misreporting a missing channel', async () => {
   const originalFetch = globalThis.fetch
@@ -34,4 +34,27 @@ test('reads the video description without requesting comments', async () => {
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('attributes playlist videos to their original channels', async t => {
+  t.mock.method(globalThis, 'fetch', async (input: string) => {
+    const url = new URL(input)
+    if (url.pathname.endsWith('/playlistItems')) {
+      return Response.json({ items: [
+        { contentDetails: { videoId: 'first' }, snippet: { title: 'First video', channelTitle: 'Playlist owner', videoOwnerChannelTitle: 'Previous channel name' } },
+        { contentDetails: { videoId: 'second' }, snippet: { title: 'Second video', channelTitle: 'Playlist owner', videoOwnerChannelTitle: 'Second author' } },
+      ] })
+    }
+    assert.equal(url.pathname, '/youtube/v3/videos')
+    return Response.json({ items: [
+      { id: 'first', snippet: { channelTitle: 'First author' }, contentDetails: { duration: 'PT10M' } },
+      { id: 'second', snippet: {}, contentDetails: { duration: 'PT10M' } },
+    ] })
+  })
+
+  const { videos } = await fetchPlaylistVideosPage('curated-playlist', 'test-key')
+  assert.deepEqual(videos.map(({ videoId, channelTitle }) => [videoId, channelTitle]), [
+    ['first', 'First author'],
+    ['second', 'Second author'],
+  ])
 })

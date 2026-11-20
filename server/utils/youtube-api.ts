@@ -45,6 +45,7 @@ const playlistItemsSchema = v.object({
       title: v.string(),
       thumbnails: v.optional(thumbnailsSchema, {}),
       channelTitle: v.optional(v.string(), ''),
+      videoOwnerChannelTitle: v.optional(v.string()),
     }),
   })), []),
   nextPageToken: v.optional(v.string()),
@@ -196,11 +197,12 @@ export async function fetchPlaylistVideosPage(playlistId: string, key: string, p
   const videosUrl = `${YOUTUBE_API_BASE}/videos?part=snippet,contentDetails,status&id=${videoIds}&key=${apiKey}`
   const videosData = await youtubeJson(videosUrl, videoListSchema)
 
-  const metadataMap = new Map<string, { description: string; duration: number; publishedAt: Date | null; embeddable: boolean }>()
+  const metadataMap = new Map<string, Pick<VideoMetadata, 'description' | 'duration' | 'channelTitle' | 'publishedAt' | 'embeddable'>>()
   for (const video of videosData.items || []) {
     metadataMap.set(video.id, {
       description: video.snippet?.description || '',
       duration: parseDuration(video.contentDetails?.duration || 'PT0S'),
+      channelTitle: video.snippet?.channelTitle || '',
       publishedAt: video.snippet?.publishedAt ? new Date(video.snippet.publishedAt) : null,
       embeddable: video.status?.embeddable !== false,
     })
@@ -213,7 +215,7 @@ export async function fetchPlaylistVideosPage(playlistId: string, key: string, p
       description: metadataMap.get(item.contentDetails.videoId)?.description || '',
       thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
       duration: metadataMap.get(item.contentDetails.videoId)?.duration || 0,
-      channelTitle: item.snippet.channelTitle || '',
+      channelTitle: metadataMap.get(item.contentDetails.videoId)?.channelTitle || item.snippet.videoOwnerChannelTitle || item.snippet.channelTitle || '',
       publishedAt: metadataMap.get(item.contentDetails.videoId)?.publishedAt ?? null,
       embeddable: metadataMap.get(item.contentDetails.videoId)?.embeddable ?? false,
       position: index,
