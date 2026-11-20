@@ -124,8 +124,9 @@ try {
     }
     if (admin) {
       await page.goto(`${origin}/admin/child/1/manage`)
-      await expect(page.getByRole('form', { name: 'Cartoons time pool' })).toBeVisible()
+      await expect(page.getByRole('article', { name: 'Cartoons time pool' })).toBeVisible()
       await expect(page.getByRole('button', { name: 'Refresh pools' })).toBeEnabled()
+      await expect(page.getByRole('region', { name: 'Today’s unlock credits' })).toContainText('1 of 1 left')
       await capture('parent-controls')
     } else {
       await page.goto(`${origin}/browse`)

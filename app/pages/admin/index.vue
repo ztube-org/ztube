@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useActionToast } from '../../composables/use-action-toast'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { apiFetch, useApi } from '../../../src/api'
 import type { AdminChild } from '../../../src/domain'
 
@@ -51,16 +51,19 @@ function extendPool(child: AdminChild, pool: AdminChild['pools'][number]) {
 
 function viewingStatus(child: AdminChild) {
   switch (child.policy?.reason) {
-    case 'viewing-pause': return 'Paused for today'
-    case 'required-break': return 'On a Required Break'
-    case 'outside-window': return 'Outside Viewing Window'
+    case 'viewing-pause': return { label: 'Paused for today', icon: 'i-heroicons-pause-circle', tone: 'warning' }
+    case 'required-break': return { label: 'On a Required Break', icon: 'i-heroicons-clock', tone: 'warning' }
+    case 'outside-window': return { label: 'Outside Viewing Window', icon: 'i-heroicons-moon', tone: 'muted' }
   }
   if (child.activePlayback?.watching) {
     const { videoTitle } = child.activePlayback
-    return videoTitle ? `Watching · ${videoTitle}` : 'Watching'
+    return { label: videoTitle ? `Watching · ${videoTitle}` : 'Watching', icon: 'i-heroicons-play-circle', tone: 'accent' }
   }
-  return 'Ready to watch'
+  return { label: 'Ready to watch', icon: 'i-heroicons-check-circle', tone: 'success' }
 }
+
+const cards = computed(() => (data.value?.children ?? []).map(child => ({ child, status: viewingStatus(child) })))
+
 </script>
 
 <template>
@@ -75,8 +78,8 @@ function viewingStatus(child: AdminChild) {
     <p v-if="notice" role="status" class="mb-3 rounded-lg border border-[var(--zt-border)] p-2 text-sm">{{ notice }}</p>
     <p v-if="!data && !error" role="status" class="text-sm text-[var(--zt-muted)]">Loading children…</p>
     <div class="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-      <UCard v-for="child in data?.children" :key="child.id" as="article" :aria-labelledby="`child-name-${child.id}`"
-        class="overflow-hidden rounded-xl" :ui="{ header: 'p-3 sm:px-3', body: 'px-3 py-1 sm:px-3', footer: 'p-3 sm:px-3' }">
+      <UCard v-for="{ child, status } in cards" :key="child.id" as="article" :aria-labelledby="`child-name-${child.id}`"
+        class="zt-panel overflow-hidden" :ui="{ header: 'p-3 sm:px-3', body: 'px-3 py-1 sm:px-3', footer: 'p-3 sm:px-3' }">
         <template #header>
           <div class="flex items-center gap-2">
             <UAvatar :src="child.avatarUrl" :alt="childName(child)" size="md" />
@@ -92,14 +95,17 @@ function viewingStatus(child: AdminChild) {
               {{ isPaused(child) ? 'Resume today' : 'Pause today' }}
             </UButton>
           </div>
-          <p v-if="child.policy" class="mt-2 break-words text-sm font-medium" :title="viewingStatus(child)">{{ viewingStatus(child) }}</p>
+          <p v-if="child.policy" class="zt-meta-pill mt-2" :data-tone="status.tone">
+            <UIcon :name="status.icon" class="size-4 shrink-0" aria-hidden="true" />
+            <span class="break-words">{{ status.label }}</span>
+          </p>
         </template>
 
         <ul v-if="child.pools?.length" aria-label="Time Pool balances" class="divide-y divide-[var(--zt-border)]">
           <li v-for="pool in child.pools" :key="pool.id" class="flex min-h-11 items-center gap-2">
             <span class="min-w-0 flex-1 break-words text-sm">{{ pool.name }}</span>
-            <span class="shrink-0 text-xs tabular-nums text-[var(--zt-muted)]">{{ pool.locked ? '0 min left' : `${Math.ceil(pool.remainingSeconds / 60)} min left` }}</span>
-            <UButton size="sm" variant="ghost" class="min-h-11 min-w-11 shrink-0" :disabled="pending"
+            <span class="zt-meta-pill shrink-0 tabular-nums" :data-tone="pool.locked ? 'muted' : pool.remainingSeconds <= 600 ? 'warning' : 'accent'">{{ pool.locked ? '0 min left' : `${Math.ceil(pool.remainingSeconds / 60)} min left` }}</span>
+            <UButton size="sm" variant="soft" class="min-h-11 min-w-11 shrink-0" :disabled="pending"
               :aria-label="`Add 15 minutes to ${pool.name} today`" @click="extendPool(child, pool)">+15 min</UButton>
           </li>
         </ul>

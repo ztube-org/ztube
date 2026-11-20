@@ -331,8 +331,8 @@ function formatPublishedDate(value: string | null): string {
         <form class="grid grid-cols-[auto_1fr] items-end gap-3" @submit.prevent="saveProfile">
           <UAvatar :src="profileForm.avatarUrl" :alt="profileForm.displayName || data?.child?.email" size="xl" />
           <div class="grid gap-3 sm:grid-cols-2">
-            <UFormField label="Display name"><UInput v-model="profileForm.displayName" required class="w-full" /></UFormField>
-            <UFormField label="Avatar URL"><UInput v-model="profileForm.avatarUrl" type="url" class="w-full" /></UFormField>
+            <UFormField label="Display name"><UInput :ui="{ base: 'min-h-11' }" v-model="profileForm.displayName" required class="w-full" /></UFormField>
+            <UFormField label="Avatar URL"><UInput :ui="{ base: 'min-h-11' }" v-model="profileForm.avatarUrl" type="url" class="w-full" /></UFormField>
           </div>
           <span />
           <UButton type="submit" size="sm" :loading="profileSaving" class="min-h-11 justify-self-end">Save profile</UButton>
@@ -355,10 +355,29 @@ function formatPublishedDate(value: string | null): string {
     </section>
     <section v-show="section === 'time'" id="panel-time" role="tabpanel" aria-labelledby="tab-time">
 
-    <div v-if="watchTime" class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--zt-border)] px-3 py-2"><div><p class="font-medium">Today · {{ watchTime.viewingDay }}</p><p class="text-sm text-[var(--zt-muted)]">{{ watchTime.policy?.reason === 'viewing-pause' ? 'Viewing is paused' : 'Pause stops playback across all time pools' }}</p></div><UButton class="min-h-11" variant="soft" color="neutral" :class="{ 'zt-warning-action': watchTime.policy?.reason !== 'viewing-pause' }" :disabled="interventionSaving" @click="setViewingPause(watchTime.policy?.reason !== 'viewing-pause')">{{ watchTime.policy?.reason === 'viewing-pause' ? 'Resume viewing' : 'Pause viewing today' }}</UButton></div>
+    <CartoonPoolSettings :child-id="childId" :pools="poolData?.pools ?? []" :playlists="data?.playlists ?? []">
+      <template #viewing>
+        <section class="zt-panel min-w-0 space-y-2 p-3" aria-label="Viewing today">
+          <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <div>
+              <h2 class="font-semibold">Viewing today</h2>
+              <p v-if="watchTime" class="text-sm tabular-nums text-[var(--zt-muted)]">{{ watchTime.viewingDay }}</p>
+            </div>
+            <span v-if="watchTime" class="zt-meta-pill" :data-tone="watchTime.policy?.blocked ? 'warning' : 'success'" role="status">
+              <UIcon :name="watchTime.policy?.blocked ? 'i-heroicons-pause-circle' : 'i-heroicons-play-circle'" class="size-4" aria-hidden="true" />
+              {{ watchTime.policy?.reason === 'viewing-pause' ? 'Paused' : watchTime.policy?.blocked ? 'Viewing unavailable' : 'Viewing allowed' }}
+            </span>
+          </div>
+          <UButton v-if="watchTime" class="min-h-11" variant="soft" color="neutral"
+            :class="{ 'zt-warning-action': watchTime.policy?.reason !== 'viewing-pause' }"
+            :disabled="interventionSaving" @click="setViewingPause(watchTime.policy?.reason !== 'viewing-pause')">
+            {{ watchTime.policy?.reason === 'viewing-pause' ? 'Resume viewing' : 'Pause viewing today' }}
+          </UButton>
+        </section>
+      </template>
+    </CartoonPoolSettings>
     <p v-if="timeError" role="alert" class="mb-3 rounded-lg border border-error/40 bg-[var(--zt-error-soft)] p-2 text-sm text-[var(--zt-error)]">{{ timeError }}</p>
     <TimePoolManager :child-id="childId" @loaded="poolData = $event" />
-    <details class="mb-4 rounded-xl border border-[var(--zt-border)] px-3"><summary class="min-h-12 cursor-pointer content-center font-medium">Unlock credits</summary><CartoonPoolSettings :child-id="childId" :pools="poolData?.pools ?? []" :playlists="data?.playlists ?? []" /></details>
 
     <details class="mb-4 rounded-xl border border-[var(--zt-border)] px-3"><summary class="min-h-12 cursor-pointer content-center font-medium">Viewing hours &amp; breaks</summary>
     <div class="grid gap-4">
@@ -407,12 +426,13 @@ function formatPublishedDate(value: string | null): string {
       <form @submit.prevent="addContent" class="flex flex-col gap-3 sm:flex-row">
         <UInput
           v-model="addUrl"
+          :ui="{ base: 'min-h-11' }"
           placeholder="Paste YouTube URL (video, playlist, or channel)"
           aria-label="YouTube video, playlist, or channel URL"
-          class="flex-1"
+          class="min-w-0 flex-1"
           required
         />
-        <UButton type="submit" :loading="addLoading">
+        <UButton type="submit" class="min-h-11" :loading="addLoading">
           Add
         </UButton>
       </form>
@@ -425,13 +445,14 @@ function formatPublishedDate(value: string | null): string {
     </div>
 
     <div class="mb-3 flex flex-wrap items-center gap-2">
-      <UInput v-model="contentSearch" icon="i-heroicons-magnifying-glass" placeholder="Search Approved Content or tags" class="min-w-64 flex-1" />
-      <UButton :variant="selectedTag ? 'soft' : 'solid'" color="neutral" @click="selectedTag = ''">All</UButton>
-      <UButton v-for="tag in allTags" :key="tag" :variant="selectedTag === tag ? 'solid' : 'soft'" color="neutral" @click="selectedTag = tag">{{ tag }}</UButton>
+      <UInput v-model="contentSearch" :ui="{ base: 'min-h-11' }" icon="i-heroicons-magnifying-glass" aria-label="Search Approved Content or tags"
+        placeholder="Search Approved Content or tags" class="min-w-0 flex-1 basis-60" />
+      <UButton class="min-h-11 min-w-11" :variant="selectedTag ? 'soft' : 'solid'" color="neutral" @click="selectedTag = ''">All</UButton>
+      <UButton v-for="tag in allTags" :key="tag" class="min-h-11 min-w-11" :variant="selectedTag === tag ? 'solid' : 'soft'" color="neutral" @click="selectedTag = tag">{{ tag }}</UButton>
     </div>
 
     <!-- Content Tabs -->
-    <UTabs class="rounded-2xl bg-[var(--zt-surface)] p-3 ring-1 ring-[var(--zt-border)] sm:p-5" :items="[
+    <UTabs class="zt-panel p-3" :ui="{ trigger: 'min-h-11' }" :items="[
       { label: `Channels (${data?.channels?.length || 0})`, slot: 'channels' },
       { label: `Playlists (${visiblePlaylists.length})`, slot: 'playlists' },
       { label: `Videos (${visibleVideos.length})`, slot: 'videos' },
@@ -440,8 +461,8 @@ function formatPublishedDate(value: string | null): string {
         <div v-if="!filteredChannels.length" class="text-center py-8 text-[var(--zt-muted)]">
           No matching channels
         </div>
-        <div v-else class="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <UCard v-for="channel in filteredChannels" :key="channel.id" class="rounded-xl ring-1 ring-[var(--zt-border)]" :class="{ 'opacity-50': !channel.isAvailable }">
+        <div v-else class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <UCard v-for="channel in filteredChannels" :key="channel.id" class="min-w-0 rounded-xl" :ui="{ body: 'p-3 sm:p-3', footer: 'p-2 sm:p-3' }" :class="{ 'opacity-50': !channel.isAvailable }">
             <div class="flex items-center gap-3">
               <UAvatar :src="channel.channelThumbnail" :alt="channel.channelTitle" size="lg" />
               <div class="flex-1 min-w-0">
@@ -452,12 +473,14 @@ function formatPublishedDate(value: string | null): string {
             </div>
             <div v-if="channel.tags?.length" class="mt-2 flex flex-wrap gap-1"><UBadge v-for="tag in channel.tags" :key="tag" color="neutral" variant="soft">{{ tag }}</UBadge></div>
             <template #footer>
-              <div class="flex flex-wrap items-center gap-2">
-                <USelect :model-value="boundPool('channel', channel.channelId, channel.contentRule)" :aria-label="`Time pool for ${channel.channelTitle}`" :items="contentRuleOptions" class="min-h-11 min-w-44" size="xs" @update:model-value="updatePoolBinding(channel.channelId, 'channel', String($event))" />
-                <UButton variant="ghost" size="xs" class="min-h-11" @click="showVideoOverrides('channel', channel.id, channel.channelTitle)">Video overrides</UButton>
-                <UButton variant="ghost" size="xs" class="min-h-11" :loading="syncingId === `channel-${channel.id}`" @click="syncContent(channel, 'channel')">Sync</UButton>
-                <UButton variant="ghost" size="xs" class="min-h-11" @click="openTags(channel, 'channel', channel.channelTitle, $event)">Tags</UButton>
-                <UButton color="neutral" variant="ghost" size="xs" class="min-h-11" icon="i-heroicons-trash" @click="requestRemoveContent(channel.id, 'channel', channel.channelTitle)">Remove</UButton>
+              <div class="grid gap-1.5">
+                <USelect :model-value="boundPool('channel', channel.channelId, channel.contentRule)" :aria-label="`Time pool for ${channel.channelTitle}`" :items="contentRuleOptions" class="min-h-11 min-w-0 w-full" size="sm" @update:model-value="updatePoolBinding(channel.channelId, 'channel', String($event))" />
+                <div class="flex flex-wrap gap-1">
+                  <UButton variant="ghost" size="sm" class="min-h-11 min-w-11" @click="showVideoOverrides('channel', channel.id, channel.channelTitle)">Video overrides</UButton>
+                  <UButton variant="ghost" size="sm" class="min-h-11 min-w-11" :loading="syncingId === `channel-${channel.id}`" @click="syncContent(channel, 'channel')">Sync</UButton>
+                  <UButton variant="ghost" size="sm" class="min-h-11 min-w-11" @click="openTags(channel, 'channel', channel.channelTitle, $event)">Tags</UButton>
+                  <UButton color="neutral" variant="ghost" size="sm" class="min-h-11 min-w-11" icon="i-heroicons-trash" @click="requestRemoveContent(channel.id, 'channel', channel.channelTitle)">Remove</UButton>
+                </div>
               </div>
             </template>
           </UCard>
@@ -468,20 +491,22 @@ function formatPublishedDate(value: string | null): string {
         <div v-if="!filteredPlaylists.length" class="text-center py-8 text-[var(--zt-muted)]">
           No matching playlists
         </div>
-        <div v-else class="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <UCard v-for="playlist in filteredPlaylists" :key="playlist.id" class="rounded-xl ring-1 ring-[var(--zt-border)]" :class="{ 'opacity-50': !playlist.isAvailable }">
+        <div v-else class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <UCard v-for="playlist in filteredPlaylists" :key="playlist.id" class="min-w-0 rounded-xl" :ui="{ body: 'p-3 sm:p-3', footer: 'p-2 sm:p-3' }" :class="{ 'opacity-50': !playlist.isAvailable }">
             <img :src="playlist.playlistThumbnail" :alt="playlist.playlistTitle" class="mb-2 h-20 w-36 rounded-lg object-cover" />
             <p class="font-medium truncate">{{ playlist.playlistTitle }}</p>
             <p v-if="!playlist.isAvailable" class="text-xs text-[var(--zt-error)]">Unavailable</p>
             <p class="text-xs text-[var(--zt-muted)]">{{ syncLabel(playlist) }}</p>
             <div v-if="playlist.tags?.length" class="mt-2 flex flex-wrap gap-1"><UBadge v-for="tag in playlist.tags" :key="tag" color="neutral" variant="soft">{{ tag }}</UBadge></div>
             <template #footer>
-              <div class="flex flex-wrap items-center gap-2">
-                <USelect :model-value="boundPool('playlist', playlist.playlistId, playlist.contentRule)" :aria-label="`Time pool for ${playlist.playlistTitle}`" :items="contentRuleOptions" class="min-h-11 min-w-44" size="xs" @update:model-value="updatePoolBinding(playlist.playlistId, 'playlist', String($event))" />
-                <UButton variant="ghost" size="xs" class="min-h-11" @click="showVideoOverrides('playlist', playlist.id, playlist.playlistTitle)">Video overrides</UButton>
-                <UButton variant="ghost" size="xs" class="min-h-11" :loading="syncingId === `playlist-${playlist.id}`" @click="syncContent(playlist, 'playlist')">Sync</UButton>
-                <UButton variant="ghost" size="xs" class="min-h-11" @click="openTags(playlist, 'playlist', playlist.playlistTitle, $event)">Tags</UButton>
-                <UButton color="neutral" variant="ghost" size="xs" class="min-h-11" icon="i-heroicons-trash" @click="requestRemoveContent(playlist.id, 'playlist', playlist.playlistTitle)">Remove</UButton>
+              <div class="grid gap-1.5">
+                <USelect :model-value="boundPool('playlist', playlist.playlistId, playlist.contentRule)" :aria-label="`Time pool for ${playlist.playlistTitle}`" :items="contentRuleOptions" class="min-h-11 min-w-0 w-full" size="sm" @update:model-value="updatePoolBinding(playlist.playlistId, 'playlist', String($event))" />
+                <div class="flex flex-wrap gap-1">
+                  <UButton variant="ghost" size="sm" class="min-h-11 min-w-11" @click="showVideoOverrides('playlist', playlist.id, playlist.playlistTitle)">Video overrides</UButton>
+                  <UButton variant="ghost" size="sm" class="min-h-11 min-w-11" :loading="syncingId === `playlist-${playlist.id}`" @click="syncContent(playlist, 'playlist')">Sync</UButton>
+                  <UButton variant="ghost" size="sm" class="min-h-11 min-w-11" @click="openTags(playlist, 'playlist', playlist.playlistTitle, $event)">Tags</UButton>
+                  <UButton color="neutral" variant="ghost" size="sm" class="min-h-11 min-w-11" icon="i-heroicons-trash" @click="requestRemoveContent(playlist.id, 'playlist', playlist.playlistTitle)">Remove</UButton>
+                </div>
               </div>
             </template>
           </UCard>
@@ -492,8 +517,8 @@ function formatPublishedDate(value: string | null): string {
         <div v-if="!filteredVideos.length" class="text-center py-8 text-[var(--zt-muted)]">
           No matching videos
         </div>
-        <div v-else class="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <UCard v-for="video in filteredVideos" :key="video.videoId" class="rounded-xl ring-1 ring-[var(--zt-border)]" :class="{ 'opacity-50': !video.isAvailable }">
+        <div v-else class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <UCard v-for="video in filteredVideos" :key="video.videoId" class="min-w-0 rounded-xl" :ui="{ body: 'p-3 sm:p-3', footer: 'p-2 sm:p-3' }" :class="{ 'opacity-50': !video.isAvailable }">
             <div class="relative">
               <img :src="video.videoThumbnail" :alt="video.videoTitle" class="h-20 w-36 rounded-lg object-cover" />
               <span v-if="video.duration" class="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1 rounded">
@@ -507,12 +532,14 @@ function formatPublishedDate(value: string | null): string {
             <p class="text-xs text-[var(--zt-muted)]">{{ syncLabel(video) }}</p>
             <div v-if="video.tags?.length" class="mt-2 flex flex-wrap gap-1"><UBadge v-for="tag in video.tags" :key="tag" color="neutral" variant="soft">{{ tag }}</UBadge></div>
             <template #footer>
-              <div class="flex flex-wrap items-center gap-2">
-                <USelect :model-value="boundPool('video', video.videoId, video.contentRule)" :aria-label="`Time pool for ${video.videoTitle}`" :items="contentRuleOptions" class="min-h-11 min-w-44" size="xs" @update:model-value="updatePoolBinding(video.videoId, 'video', String($event))" />
-                <UButton color="primary" variant="soft" size="xs" class="min-h-11" icon="i-heroicons-megaphone" @click="recommendVideo(video.videoId)">{{ recommendedVideoId === video.videoId ? 'Recommended' : 'Recommend again' }}</UButton>
-                <UButton variant="ghost" size="xs" class="min-h-11" :loading="syncingId === `video-${video.id}`" @click="syncContent(video, 'video')">Sync</UButton>
-                <UButton variant="ghost" size="xs" class="min-h-11" @click="openTags(video, 'video', video.videoTitle, $event)">Tags</UButton>
-                <UButton color="neutral" variant="ghost" size="xs" class="min-h-11" icon="i-heroicons-trash" @click="requestRemoveContent(video.id, 'video', video.videoTitle)">Remove</UButton>
+              <div class="grid gap-1.5">
+                <USelect :model-value="boundPool('video', video.videoId, video.contentRule)" :aria-label="`Time pool for ${video.videoTitle}`" :items="contentRuleOptions" class="min-h-11 min-w-0 w-full" size="sm" @update:model-value="updatePoolBinding(video.videoId, 'video', String($event))" />
+                <div class="flex flex-wrap gap-1">
+                  <UButton color="primary" variant="soft" size="sm" class="min-h-11 min-w-11" icon="i-heroicons-megaphone" @click="recommendVideo(video.videoId)">{{ recommendedVideoId === video.videoId ? 'Recommended' : 'Recommend again' }}</UButton>
+                  <UButton variant="ghost" size="sm" class="min-h-11 min-w-11" :loading="syncingId === `video-${video.id}`" @click="syncContent(video, 'video')">Sync</UButton>
+                  <UButton variant="ghost" size="sm" class="min-h-11 min-w-11" @click="openTags(video, 'video', video.videoTitle, $event)">Tags</UButton>
+                  <UButton color="neutral" variant="ghost" size="sm" class="min-h-11 min-w-11" icon="i-heroicons-trash" @click="requestRemoveContent(video.id, 'video', video.videoTitle)">Remove</UButton>
+                </div>
               </div>
             </template>
           </UCard>
@@ -527,16 +554,16 @@ function formatPublishedDate(value: string | null): string {
             <h2 class="font-semibold">Video-specific time pools</h2>
             <p class="text-sm text-[var(--zt-muted)]">{{ overrideSource.title }} · These overrides do not create duplicate video cards.</p>
           </div>
-          <UButton variant="ghost" @click="overrideSource = null">Close</UButton>
+          <UButton variant="ghost" class="min-h-11" @click="overrideSource = null">Close</UButton>
         </div>
       </template>
       <p v-if="overrideLoading">Loading videos…</p>
       <p v-else-if="!overrideVideos.length" class="text-[var(--zt-muted)]">No videos are cached yet. Use Sync on the content card and try again.</p>
       <div v-else class="divide-y">
-        <div v-for="video in overrideVideos" :key="video.videoId" class="flex items-center gap-3 py-3">
+        <div v-for="video in overrideVideos" :key="video.videoId" class="flex flex-wrap items-center gap-2 py-3">
           <img :src="video.videoThumbnail" :alt="video.videoTitle" class="h-12 w-20 rounded object-cover" />
           <p class="flex-1 truncate">{{ video.videoTitle }}</p>
-          <USelect :model-value="overrideFor(video.videoId)" :items="videoRuleOptions" class="min-h-11 min-w-48" size="xs" @update:model-value="updateVideoOverride(video.videoId, String($event))" />
+          <USelect :model-value="overrideFor(video.videoId)" :items="videoRuleOptions" class="min-h-11 min-w-0 w-48 max-w-full" size="sm" @update:model-value="updateVideoOverride(video.videoId, String($event))" />
           <UButton color="primary" variant="soft" icon="i-heroicons-megaphone" class="min-h-11" @click="recommendVideo(video.videoId)">{{ recommendedVideoId === video.videoId ? 'Recommended' : 'Recommend' }}</UButton>
         </div>
       </div>

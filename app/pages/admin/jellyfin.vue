@@ -22,6 +22,10 @@ const error = ref('')
 const notice = ref('')
 const draft = ref<(Omit<Server, 'revision'> & { revision?: number; apiKey: string }) | null>(null)
 const playbackUsers = ref<{ id: string; name: string }[]>([])
+const playbackUserOptions = computed(() => [
+  { label: 'Automatic (prefer a non-admin user)', value: 'automatic' },
+  ...playbackUsers.value.map(user => ({ label: user.name, value: user.id })),
+])
 const serverId = ref('')
 const currentServer = computed(() => servers.value.find(server => server.id === serverId.value))
 const scopes = ref<Scope[]>([{ name: 'Libraries', type: 'libraries' }])
@@ -129,11 +133,6 @@ async function share(item: Import, child: Child, approved: boolean) {
   await apiFetch(`/api/admin/jellyfin/imports/${item.id}/children/${child.id}`, { method: 'PUT', body: { approved } })
   await reload(); notice.value = `${item.title} ${approved ? 'added to' : 'removed from'} ${child.displayName || child.email}’s Cartoon Pool.`
 }
-async function toggleShare(item: Import, child: Child, event: Event) {
-  const input = event.target as HTMLInputElement
-  await act(() => share(item, child, input.checked))
-  input.checked = shared(item.id, child.id)
-}
 function syncTime(epoch: number) { return new Date(epoch * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) }
 </script>
 
@@ -150,18 +149,29 @@ function syncTime(epoch: number) { return new Date(epoch * 1000).toLocaleString(
     <p v-if="error" role="alert" class="rounded-lg border border-error/40 bg-[var(--zt-error-soft)] p-3 text-sm text-[var(--zt-error)]">{{ error }}</p>
     <p v-if="notice" role="status" class="rounded-lg border border-[var(--zt-border)] p-3 text-sm">{{ notice }}</p>
     <div v-show="section === 'connections'" class="space-y-4">
-    <div class="flex justify-end"><UButton :disabled="busy" @click="edit()">Add Jellyfin server</UButton></div>
+    <div class="flex justify-end"><UButton class="min-h-11" :disabled="busy" @click="edit()">Add Jellyfin server</UButton></div>
     <form v-if="draft" class="zt-panel space-y-3 p-4" aria-label="Jellyfin connection" @submit.prevent="act(save)">
       <h2 class="font-semibold">{{ draft.id === 'new' ? 'New connection' : 'Edit connection' }}</h2>
       <div class="grid gap-3 sm:grid-cols-2">
-        <label class="text-sm">Name<input v-model="draft.name" required maxlength="100" :disabled="busy" class="zt-surface mt-1 min-h-11 w-full rounded-lg border px-3" /></label>
-        <label class="text-sm">Server URL<input v-model="draft.url" type="url" required :disabled="busy || draft.id !== 'new'" placeholder="https://jellyfin.example.com/" class="zt-surface mt-1 min-h-11 w-full rounded-lg border px-3" /></label>
-        <label class="text-sm sm:col-span-2">Jellyfin API key<input v-model="draft.apiKey" type="password" autocomplete="new-password" :required="draft.id === 'new'" :disabled="busy" :placeholder="draft.id === 'new' ? 'From Jellyfin Dashboard → API Keys' : 'Leave blank to keep the saved key'" class="zt-surface mt-1 min-h-11 w-full rounded-lg border px-3" /></label>
-        <label v-if="draft.id !== 'new'" class="text-sm sm:col-span-2">Playback user<select v-model="draft.userId" :disabled="busy" class="zt-surface mt-1 min-h-11 w-full rounded-lg border px-3"><option :value="null">Automatic (prefer a non-admin user)</option><option v-for="user in playbackUsers" :key="user.id" :value="user.id">{{ user.name }}</option></select></label>
+        <UFormField label="Name" required>
+          <UInput v-model="draft.name" required maxlength="100" :disabled="busy" :ui="{ base: 'min-h-11' }" class="w-full" />
+        </UFormField>
+        <UFormField label="Server URL" required>
+          <UInput v-model="draft.url" type="url" required :disabled="busy || draft.id !== 'new'" placeholder="https://jellyfin.example.com/" :ui="{ base: 'min-h-11' }" class="w-full" />
+        </UFormField>
+        <UFormField label="Jellyfin API key" :required="draft.id === 'new'">
+          <UInput v-model="draft.apiKey" type="password" autocomplete="new-password" :required="draft.id === 'new'" :disabled="busy"
+            :placeholder="draft.id === 'new' ? 'From Jellyfin Dashboard → API Keys' : 'Leave blank to keep the saved key'" :ui="{ base: 'min-h-11' }" class="w-full" />
+        </UFormField>
+        <UFormField v-if="draft.id !== 'new'" label="Playback user">
+          <USelect :model-value="draft.userId ?? 'automatic'" :items="playbackUserOptions" :disabled="busy" class="min-h-11 w-full"
+            @update:model-value="draft && (draft.userId = $event === 'automatic' ? null : $event)" />
+        </UFormField>
       </div>
       <p class="text-sm text-[var(--zt-muted)]">Use an HTTPS address reachable by ZTube and the children’s devices. Include Jellyfin’s base path if it has one. You can save the connection before testing it.</p>
       <p class="text-sm text-[var(--zt-muted)]">Videos play directly from Jellyfin. Copied links can play outside ZTube’s time limits. If Jellyfin requires authentication, the saved API key is included in the playback link.</p>
-      <label class="flex min-h-11 items-center gap-2 text-sm"><input v-model="draft.enabled" type="checkbox" :disabled="busy" />Connection enabled</label>
+      <UCheckbox v-model="draft.enabled" label="Connection enabled" :disabled="busy" class="zt-check-row w-fit"
+        :ui="{ root: 'items-center', wrapper: 'min-w-0 flex-1', label: 'flex min-h-11 items-center' }" />
       <div class="flex gap-2"><UButton type="submit" :loading="busy" class="min-h-11">Save connection</UButton><UButton variant="soft" :disabled="busy" class="min-h-11" @click="draft = null">Cancel</UButton></div>
     </form>
     <section aria-label="Jellyfin servers" class="grid gap-3 sm:grid-cols-2">
@@ -174,11 +184,11 @@ function syncTime(epoch: number) { return new Date(epoch * 1000).toLocaleString(
     </section>
     </div>
     <div v-show="section === 'browse'" class="space-y-4">
-      <div class="flex flex-wrap items-center gap-3"><span class="text-sm font-medium">Browse a server</span><UButton v-for="server in servers" :key="server.id" variant="soft" :disabled="busy || !server.enabled" @click="act(() => openServer(server))">{{ server.name }}</UButton><UButton v-if="!servers.length" @click="edit()">Add Jellyfin server</UButton></div>
+      <div class="flex flex-wrap items-center gap-3"><span class="text-sm font-medium">Browse a server</span><UButton v-for="server in servers" :key="server.id" variant="soft" class="min-h-11" :disabled="busy || !server.enabled" @click="act(() => openServer(server))">{{ server.name }}</UButton><UButton v-if="!servers.length" class="min-h-11" @click="edit()">Add Jellyfin server</UButton></div>
     <section v-if="browsing" class="zt-panel space-y-3 p-4" aria-label="Browse Jellyfin">
       <h2 class="text-lg font-semibold">{{ currentServer?.name }}</h2>
       <nav aria-label="Jellyfin folders" class="flex flex-wrap gap-1"><UButton v-for="(entry, index) in scopes" :key="index" :variant="index === scopes.length - 1 ? 'solid' : 'soft'" :disabled="busy" class="min-h-11" @click="act(() => back(index))">{{ entry.name }}</UButton></nav>
-      <form v-if="scope.type !== 'libraries'" class="flex gap-2" @submit.prevent="act(() => browse())"><UInput v-model="query" placeholder="Search this list" aria-label="Search Jellyfin" class="min-h-11 flex-1" /><UButton type="submit" :disabled="busy" class="min-h-11">Search</UButton></form>
+      <form v-if="scope.type !== 'libraries'" class="flex gap-2" @submit.prevent="act(() => browse())"><UInput :ui="{ base: 'min-h-11' }" v-model="query" placeholder="Search this list" aria-label="Search Jellyfin" class="min-w-0 flex-1" /><UButton type="submit" :disabled="busy" class="min-h-11">Search</UButton></form>
       <p v-if="!items.length && !busy" class="text-sm text-[var(--zt-muted)]">No items found. Choose a library containing TV series.</p>
       <div class="divide-y divide-[var(--zt-border)]">
         <div v-for="item in items" :key="item.id" class="flex flex-wrap items-center gap-3 py-2">
@@ -192,12 +202,30 @@ function syncTime(epoch: number) { return new Date(epoch * 1000).toLocaleString(
     </section>
     </div>
     <section v-show="section === 'imports'" aria-label="Imported Jellyfin series" class="space-y-3">
-      <div class="flex flex-wrap items-center justify-between gap-3"><p class="text-sm text-[var(--zt-muted)]">Series update only when you select Sync. Automatic sync is off.</p><UInput v-model="importSearch" aria-label="Search imported series" placeholder="Find a series" /></div>
+      <div class="flex flex-wrap items-center justify-between gap-3"><p class="text-sm text-[var(--zt-muted)]">Series update only when you select Sync. Automatic sync is off.</p><UInput :ui="{ base: 'min-h-11' }" v-model="importSearch" aria-label="Search imported series" placeholder="Find a series" /></div>
       <p v-if="!imports.length" class="text-sm text-[var(--zt-muted)]">Use Import series to add your first series, then select who can watch.</p>
-      <article v-for="item in filteredImports" :key="item.id" class="zt-panel space-y-3 p-4" :aria-label="item.title">
-        <div class="flex flex-wrap items-center gap-3"><MediaArtwork :src="item.thumbnail" :title="item.title" kind="playlist" compact class="h-16 w-28 shrink-0 rounded-lg" /><div class="min-w-0 flex-1"><h3 class="font-semibold">{{ item.title }}</h3><p class="text-sm text-[var(--zt-muted)]">{{ item.episodeCount }} episodes · Updated {{ syncTime(item.lastSyncedAt) }}</p></div><UButton variant="soft" :disabled="busy || !servers.find(s => s.id === item.serverId)?.enabled" class="min-h-11" @click="act(() => importItem(item.serverId, item.itemId))">Sync</UButton><UButton color="error" variant="ghost" :disabled="busy" :aria-label="`Delete ${item.title}`" @click="requestDeleteImport(item)">Delete</UButton></div>
-        <fieldset :disabled="busy"><legend class="text-sm font-medium">Available to</legend>
-          <div class="grid gap-x-4 sm:grid-cols-2"><label v-for="child in children" :key="child.id" class="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" :checked="shared(item.id, child.id)" @change="toggleShare(item, child, $event)" />{{ child.displayName || child.email }}</label></div>
+      <article v-for="item in filteredImports" :key="item.id" class="zt-panel space-y-3 p-3 sm:p-4" :aria-label="item.title">
+        <div class="flex flex-wrap items-center gap-3">
+          <MediaArtwork :src="item.thumbnail" :title="item.title" kind="playlist" compact class="aspect-video w-24 shrink-0 rounded-lg sm:w-28" />
+          <div class="min-w-0 flex-1">
+            <h3 class="break-words font-semibold">{{ item.title }}</h3>
+            <p class="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-[var(--zt-muted)]">
+              <span class="zt-meta-pill tabular-nums" data-tone="accent">{{ item.episodeCount }} episodes</span>
+              <span>Updated {{ syncTime(item.lastSyncedAt) }}</span>
+            </p>
+          </div>
+          <div class="flex flex-wrap gap-1">
+            <UButton variant="soft" :disabled="busy || !servers.find(s => s.id === item.serverId)?.enabled" class="min-h-11" @click="act(() => importItem(item.serverId, item.itemId))">Sync</UButton>
+            <UButton color="error" variant="ghost" class="min-h-11" :disabled="busy" :aria-label="`Delete ${item.title}`" @click="requestDeleteImport(item)">Delete</UButton>
+          </div>
+        </div>
+        <fieldset :disabled="busy">
+          <legend class="text-sm font-semibold">Available to</legend>
+          <div class="mt-1 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <UCheckbox v-for="child in children" :key="child.id" :label="child.displayName || child.email" :model-value="shared(item.id, child.id)"
+              :disabled="busy" class="zt-check-row" :ui="{ root: 'items-center', wrapper: 'min-w-0 flex-1', label: 'flex min-h-11 items-center break-words' }"
+              @update:model-value="act(() => share(item, child, $event === true))" />
+          </div>
         </fieldset>
 
         <div class="flex flex-wrap gap-2"><UButton v-for="child in children.filter(child => shared(item.id, child.id))" :key="child.id" :to="`/admin/child/${child.id}/manage`" variant="link" class="min-h-11 px-0">{{ child.displayName || child.email }}’s time &amp; credit settings</UButton></div>
@@ -205,7 +233,3 @@ function syncTime(epoch: number) { return new Date(epoch * 1000).toLocaleString(
     </section>
   </div>
 </template>
-
-<style scoped>
-input[type="checkbox"] { width: 1.25rem; height: 1.25rem; min-width: 1.25rem; min-height: 1.25rem; accent-color: var(--zt-blue); }
-</style>

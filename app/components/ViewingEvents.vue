@@ -44,7 +44,7 @@ onMounted(() => { void refresh() })
       <li v-for="event in events" :key="event.kind === 'unlock' ? `u:${event.videoId}` : `p:${event.sessionId}`" class="flex items-start justify-between gap-4 py-3">
         <div class="min-w-0">
           <p class="break-words text-sm font-medium">{{ event.videoTitle }}</p>
-          <p class="text-xs text-[var(--zt-muted)]">{{ event.channelTitle || 'Video' }} · {{ event.videoId }}</p>
+          <p class="break-words text-xs text-[var(--zt-muted)]">{{ event.channelTitle || 'Video' }} · {{ event.videoId }}</p>
           <template v-if="event.kind === 'unlock'">
             <p class="mt-1 text-xs text-[var(--zt-muted)]">Unlocked {{ timestamp(event.unlockedAt) }}</p>
           </template>
@@ -53,7 +53,7 @@ onMounted(() => { void refresh() })
             <p class="text-xs text-[var(--zt-muted)]">Last watched {{ timestamp(event.lastWatchedAt) }}</p>
           </template>
         </div>
-        <div class="shrink-0 text-right">
+        <div class="min-w-0 max-w-[42%] break-words text-right">
           <template v-if="event.kind === 'unlock'">
             <UBadge color="primary" variant="soft">Episode Unlock</UBadge>
             <p class="mt-1 text-xs text-[var(--zt-muted)]">1 Unlock Credit · No Watch Time</p>

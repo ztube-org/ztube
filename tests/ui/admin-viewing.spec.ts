@@ -6,6 +6,7 @@ test('Admin edits independent time pools, binds content and saves daily unlock c
   const pools = [makePool('restricted', 'General videos', 60, 18), makePool('cartoon', 'Cartoons', 30, 12), makePool('exempt', 'Learning', 180, 25)]
   let tags = ['Stories']
   let tagWrites = 0
+  let paused = false
   let confirmedReductions = 0
   const bindings: TimePoolBinding[] = [{ kind: 'channel', contentId: 'science', poolId: 'pool:1:exempt' }]
   const grantIds = new Set<string>()
@@ -15,7 +16,7 @@ test('Admin edits independent time pools, binds content and saves daily unlock c
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   await page.route('**/api/**', async route => {
-    const path = new URL(route.request().url()).pathname
+    const path = decodeURIComponent(new URL(route.request().url()).pathname)
     const method = route.request().method()
     const child = { id: 1, email: 'preview@example.com', displayName: 'Explorer', role: 'admin' }
     let body: unknown = {}
@@ -28,7 +29,14 @@ test('Admin edits independent time pools, binds content and saves daily unlock c
     else if (path.endsWith('/content/channel/1/tags')) {
       tags = route.request().postDataJSON().tags
       tagWrites++
-    } else if (path.endsWith('/time-pools')) body = { pools, bindings, viewingDay: '2026-09-17' }
+    } else if (path.endsWith('/time-pools')) {
+      if (method === 'POST') {
+        const input = route.request().postDataJSON()
+        const pool = { ...makePool('restricted', input.name, input.weekdayMinutes, 0), ...input, legacyKey: null, id: 'new-pool' }
+        pools.push(pool)
+        body = { pool }
+      } else body = { pools, bindings, viewingDay: '2026-09-17' }
+    }
     else if (path.includes('/time-pools/')) {
       const pool = pools.find(pool => path.includes(pool.id))!
       if (path.endsWith('/extensions')) { const minutes = route.request().postDataJSON().minutes; pool.extensionMinutes += minutes; pool.remainingSeconds += minutes * 60 }
@@ -60,7 +68,8 @@ test('Admin edits independent time pools, binds content and saves daily unlock c
       }
       body = { settings, viewingDay: { localDate: '2026-09-17', isWeekend: false, allowanceMinutes: settings.weekdayAllowanceMinutes } }
     }
-    else if (path.endsWith('/watch-time')) body = { viewingDay: '2026-09-17', restricted: { usedMinutes: 18, remainingMinutes: 42 }, exempt: { usedMinutes: 25, remainingMinutes: 155 }, policy: { blocked: false, breakCycleRemainingSeconds: 1200 } }
+    else if (path.endsWith('/watch-time/viewing-pause')) paused = route.request().postDataJSON().paused
+    else if (path.endsWith('/watch-time')) body = { viewingDay: '2026-09-17', restricted: { usedMinutes: 18, remainingMinutes: 42 }, exempt: { usedMinutes: 25, remainingMinutes: 155 }, policy: { blocked: paused, reason: paused ? 'viewing-pause' : null, breakCycleRemainingSeconds: 1200 } }
     else if (path.endsWith('/usage')) body = { days: [] }
     else if (path.endsWith('/viewing-events')) body = { events: [
       { kind: 'unlock', videoId: 'jf:episode-1', videoTitle: 'First episode', channelTitle: 'Adventure cartoons', unlockedAt: 1789671600 },
@@ -69,11 +78,26 @@ test('Admin edits independent time pools, binds content and saves daily unlock c
     await route.fulfill({ json: body })
   })
   await page.goto('/admin/child/1/manage')
-  await expect(page.getByRole('form', { name: 'Cartoons time pool' })).toBeVisible()
+  await expect(page.getByRole('article', { name: 'Cartoons time pool' })).toBeVisible()
   await expect(page.locator('a[href="/admin/library"]')).toHaveCount(0)
   await page.screenshot({ path: testInfo.outputPath('child-settings-overview.png'), fullPage: true })
-  await page.getByText('Unlock credits', { exact: true }).click()
-  await expect(page.getByLabel('Time pool for the cartoon library')).toHaveValue('pool:1:cartoon')
+  const viewingToday = page.getByRole('region', { name: 'Viewing today' })
+  const todayCredits = page.getByRole('region', { name: 'Today’s unlock credits' })
+  for (const size of [{ width: 820, height: 1180 }, { width: 1180, height: 820 }]) {
+    await page.setViewportSize(size)
+    const left = (await viewingToday.boundingBox())!
+    const right = (await todayCredits.boundingBox())!
+    expect(left.y).toBeCloseTo(right.y, 0)
+    expect(right.x).toBeGreaterThan(left.x)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
+  await page.setViewportSize({ width: 820, height: 1180 })
+  await viewingToday.getByRole('button', { name: 'Pause viewing today' }).tap()
+  await expect(viewingToday.getByRole('status')).toHaveText('Paused')
+  await viewingToday.getByRole('button', { name: 'Resume viewing' }).tap()
+  await expect(viewingToday.getByRole('status')).toHaveText('Viewing allowed')
+  await todayCredits.getByRole('button', { name: 'Edit unlock rules' }).click()
+  await expect(page.getByRole('combobox', { name: 'Time pool for the cartoon library' })).toContainText('Cartoons')
   const poolSection = page.getByRole('region', { name: 'Time pools', exact: true })
   await poolSection.scrollIntoViewIfNeeded()
   await page.evaluate(() => { const el = document.querySelector('[aria-label="Time pools"]')!; window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 76) })
@@ -109,28 +133,44 @@ test('Admin edits independent time pools, binds content and saves daily unlock c
   await expect(page.getByLabel('Time pool for Weekend stories')).toContainText('Learning')
   expect(bindings).toContainEqual({ kind: 'channel', contentId: 'stories', poolId: 'pool:1:exempt' })
   await page.getByRole('tab', { name: 'Time & limits', exact: true }).click()
-  const general = page.getByRole('form', { name: 'General videos time pool' })
-  const learning = page.getByRole('form', { name: 'Learning time pool' })
-  await general.getByText('Edit daily limits', { exact: true }).click()
-  await learning.getByText('Edit daily limits', { exact: true }).click()
-  await learning.getByLabel('Weekday minutes').fill('200')
-  await general.getByLabel('Weekday minutes').fill('50')
-  await general.getByRole('button', { name: 'Save pool', exact: true }).click()
-  await expect(page.getByRole('status')).toContainText('General videos saved.')
-  await expect(learning.getByLabel('Weekday minutes')).toHaveValue('200')
+  const general = page.getByRole('article', { name: 'General videos time pool' })
+  const learning = page.getByRole('article', { name: 'Learning time pool' })
+  const editor = page.getByRole('dialog', { name: 'Edit time pool' })
+  await learning.getByRole('button', { name: 'Edit Learning' }).click()
+  await editor.getByLabel('Weekday minutes').fill('200')
+  await page.keyboard.press('Escape')
+  await expect(editor).toBeHidden()
+  await expect(learning.getByRole('button', { name: 'Edit Learning' })).toBeFocused()
+  await general.getByRole('button', { name: 'Edit General videos' }).click()
+  await expect(editor.getByLabel('Pool name')).toBeFocused()
+  await editor.getByLabel('Weekday minutes').fill('50')
+  await editor.getByRole('button', { name: 'Save pool', exact: true }).click()
+  await expect(poolSection.getByRole('status')).toContainText('General videos saved.')
+  await learning.getByRole('button', { name: 'Edit Learning' }).click()
+  await expect(editor.getByLabel('Weekday minutes')).toHaveValue('180')
+  await editor.getByRole('button', { name: 'Cancel' }).click()
+  await poolSection.getByRole('button', { name: 'Add time pool', exact: true }).click()
+  const adding = page.getByRole('dialog', { name: 'Add time pool' })
+  await adding.getByLabel('Pool name').fill('Music')
+  await adding.getByLabel('Weekend minutes').fill('45')
+  await adding.getByRole('checkbox', { name: 'Unlock required before first play' }).check()
+  await adding.getByRole('button', { name: 'Add time pool', exact: true }).click()
+  await expect(poolSection.getByRole('article', { name: 'Music time pool' })).toBeVisible()
+  await expect(poolSection.getByRole('status')).toContainText('Music added.')
+  expect(pools.at(-1)).toMatchObject({ name: 'Music', weekdayMinutes: 30, weekendMinutes: 45, requiresClaim: true })
   await general.getByRole('button', { name: 'Add 15 minutes to General videos today' }).click()
   await expect(general).toContainText('+15 min today')
   expect(pools[1]!.extensionMinutes).toBe(0)
   expect(pools[2]!.extensionMinutes).toBe(0)
-  await page.getByLabel('Unlock credits per day').selectOption('2')
-  const todayCredits = page.getByRole('region', { name: 'Today’s unlock credits' })
+  await page.getByRole('combobox', { name: 'Unlock credits per day' }).click()
+  await page.getByRole('option', { name: '2 credits' }).click()
   await expect(todayCredits).toContainText('0 of 1 left · 0 extra granted')
   await todayCredits.getByRole('button', { name: 'Add 1 credit today' }).click()
   await expect(todayCredits.getByRole('alert')).toContainText('Response interrupted')
   await todayCredits.getByRole('button', { name: 'Retry granting 1 credit' }).click()
   await expect(todayCredits).toContainText('1 of 2 left · 1 extra granted')
   expect(grantIds.size).toBe(1)
-  await expect(page.getByLabel('Unlock credits per day')).toHaveValue('2')
+  await expect(page.getByRole('combobox', { name: 'Unlock credits per day' })).toContainText('2 credits')
   expect(cartoon.dailyLimit).toBe(1, 'granting must not save unsaved daily settings')
   await todayCredits.getByRole('button', { name: 'Add 1 credit today' }).click()
   await expect(todayCredits).toContainText('2 of 3 left · 2 extra granted')
@@ -142,13 +182,14 @@ test('Admin edits independent time pools, binds content and saves daily unlock c
   await expect(page.getByText('Unlock settings saved.', { exact: true })).toBeVisible()
   expect(cartoon).toEqual({ dailyLimit: 2, timePoolId: 'pool:1:cartoon', playlistIds: [10, 12, 11] })
   await page.reload()
-  await expect(page.getByRole('form', { name: 'General videos time pool' }).getByLabel('Weekday minutes')).toHaveValue('50')
-  await expect(page.getByRole('form', { name: 'Learning time pool' }).getByLabel('Weekday minutes')).toHaveValue('180')
-  await page.getByText('Unlock credits', { exact: true }).click()
-  await expect(page.getByLabel('Unlock credits per day')).toHaveValue('2')
+  await general.getByRole('button', { name: 'Edit General videos' }).click()
+  await expect(editor.getByLabel('Weekday minutes')).toHaveValue('50')
+  await editor.getByRole('button', { name: 'Cancel' }).click()
+  await todayCredits.getByRole('button', { name: 'Edit unlock rules' }).click()
+  await expect(page.getByRole('combobox', { name: 'Unlock credits per day' })).toContainText('2 credits')
   await page.getByRole('tab', { name: 'Content', exact: true }).click()
   await expect(page.getByLabel('Time pool for Weekend stories')).toContainText('Learning')
-  await expect(page.getByRole('form', { name: 'General videos time pool' })).toBeHidden()
+  await expect(page.getByRole('article', { name: 'General videos time pool' })).toBeHidden()
   await page.getByRole('tab', { name: 'Activity', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Daily Usage Summary' })).toBeVisible()
   const activity = page.getByRole('listitem').filter({ hasText: 'Episode Unlock' })
