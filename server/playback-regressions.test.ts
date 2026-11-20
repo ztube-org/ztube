@@ -284,3 +284,38 @@ test('Viewing Events enforce Admin access, isolate children, paginate tied times
   assert.equal(d1.sqlite.prepare('SELECT COUNT(*) AS n FROM viewing_events').get()!.n, 0)
   assert.equal(d1.sqlite.prepare('SELECT restricted_seconds FROM daily_usage_summaries').get()!.restricted_seconds, 10)
 })
+
+test('Viewing Events filter by exact local Viewing Day through a 25-hour daylight saving change', async () => {
+  const { d1, clock, request } = await fixture()
+  clock.setTime(Date.parse('2026-11-02T12:00:00Z'))
+  d1.sqlite.exec("UPDATE child_time_settings SET time_zone = 'America/Los_Angeles' WHERE child_id = 10")
+  const insertSession = d1.sqlite.prepare("INSERT INTO playback_sessions (id, child_id, viewing_day, last_sequence, last_state, last_acknowledged_at, lease_expires_at, usage_bucket, ended_at) VALUES (?, 10, '2026-11-01', 1, 'ended', ?, ?, 'restricted', ?)")
+  const insertEvent = d1.sqlite.prepare("INSERT INTO viewing_events (session_id, child_id, video_id, video_title, usage_bucket, authorized_at, started_at, last_watched_at, watched_seconds) VALUES (?, 10, 'approved', 'Approved', 'restricted', ?, ?, ?, 1)")
+  const insertUnlock = d1.sqlite.prepare('INSERT INTO episode_unlocks VALUES (10, ?, ?)')
+  const boundaries = [
+    ['expired', '2026-10-02T12:00:00Z'],
+    ['before', '2026-11-01T06:59:59Z'],
+    ['start', '2026-11-01T07:00:00Z'],
+    ['end', '2026-11-02T07:59:59Z'],
+    ['after', '2026-11-02T08:00:00Z'],
+  ]
+  for (const [key, time] of boundaries) {
+    const epoch = Date.parse(time!) / 1000
+    insertSession.run(key!, epoch, epoch, epoch)
+    insertEvent.run(key!, epoch, epoch, epoch)
+    insertUnlock.run(`jf:${key}`, epoch)
+  }
+  const path = '/api/admin/children/10/viewing-events'
+  const response = await request(`${path}?day=2026-11-01`, 'GET')
+  assert.equal(response.status, 200)
+  const data = await response.json() as import('../src/viewing-events.ts').ViewingEventsResponse
+  assert.equal(data.timeZone, 'America/Los_Angeles')
+  assert.equal(data.nextCursor, null)
+  assert.deepEqual(data.events.map(event => event.kind === 'playback' ? event.sessionId : event.videoId), ['jf:end', 'end', 'jf:start', 'start'])
+  for (const day of ['2026-10-02', '2026-11-03']) {
+    assert.deepEqual((await (await request(`${path}?day=${day}`, 'GET')).json() as typeof data).events, [])
+  }
+  for (const day of ['', '2026-2-1', '2026-02-30']) {
+    assert.equal((await request(`${path}?day=${day}`, 'GET')).status, 400)
+  }
+})

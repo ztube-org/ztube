@@ -1,11 +1,12 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ApiError, apiFetch, useApi } from '../../src/api'
+import type { DailyWatchTotal } from '../../src/usage-chart'
 
 export function useAdminViewing(childId: number, requestReduction: (message: string, proceed: () => Promise<void>) => void) {
   const { data: timeData, refresh: refreshTimeSettings } = useApi<any>(`/api/admin/children/${childId}/time-settings`)
   const { data: watchTime, refresh: refreshWatchTime } = useApi<any>(`/api/admin/children/${childId}/watch-time`)
   const usageDays = ref<7 | 30>(7)
-  const usage = ref<any>(null)
+  const usage = ref<{ days: DailyWatchTotal[] } | null>(null)
   const usageError = ref('')
   const usageLoading = ref(false)
   let usageRequest = 0
@@ -14,7 +15,7 @@ export function useAdminViewing(childId: number, requestReduction: (message: str
     usageLoading.value = true
     usageError.value = ''
     try {
-      const result = await apiFetch(`/api/admin/children/${childId}/usage?days=${usageDays.value}`)
+      const result = await apiFetch<{ days: DailyWatchTotal[] }>(`/api/admin/children/${childId}/usage?days=${usageDays.value}`)
       if (request === usageRequest) usage.value = result
     } catch (error) {
       if (request === usageRequest) usageError.value = error instanceof Error ? error.message : 'Failed to load usage'

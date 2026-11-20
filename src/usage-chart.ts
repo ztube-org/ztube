@@ -1,3 +1,8 @@
+export interface DailyWatchTotal {
+  viewingDay: string
+  totalSeconds: number
+}
+
 export function usageChartScale(seconds: number[]) {
   const maximum = Math.max(1, ...seconds.map(value => Math.max(0, value) / 60))
   const roughStep = maximum / 4

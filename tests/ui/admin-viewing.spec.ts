@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { TimePoolStatus, TimePoolBinding } from '../../src/domain'
+import type { PlaybackViewingEvent, ViewingEvent } from '../../src/viewing-events'
 
 test('Admin edits independent time pools, binds content and saves daily unlock credits', async ({ page }, testInfo) => {
   const makePool = (key: 'restricted' | 'cartoon' | 'exempt', name: string, minutes: number, used: number): TimePoolStatus => ({ id: `pool:1:${key}`, legacyKey: key, name, weekdayMinutes: minutes, weekendMinutes: minutes, requiresClaim: key === 'cartoon', usedSeconds: used * 60, remainingSeconds: (minutes - used) * 60, allowanceMinutes: minutes, extensionMinutes: 0, unlocked: false, locked: false })
@@ -71,10 +72,7 @@ test('Admin edits independent time pools, binds content and saves daily unlock c
     else if (path.endsWith('/watch-time/viewing-pause')) paused = route.request().postDataJSON().paused
     else if (path.endsWith('/watch-time')) body = { viewingDay: '2026-09-17', restricted: { usedMinutes: 18, remainingMinutes: 42 }, exempt: { usedMinutes: 25, remainingMinutes: 155 }, policy: { blocked: paused, reason: paused ? 'viewing-pause' : null, breakCycleRemainingSeconds: 1200 } }
     else if (path.endsWith('/usage')) body = { days: [] }
-    else if (path.endsWith('/viewing-events')) body = { events: [
-      { kind: 'unlock', videoId: 'jf:episode-1', videoTitle: 'First episode', channelTitle: 'Adventure cartoons', unlockedAt: 1789671600 },
-      { kind: 'playback', sessionId: 'watch-1', videoId: 'jf:episode-1', videoTitle: 'First episode', channelTitle: 'Adventure cartoons', usageBucket: 'cartoon', timePoolId: 'pool:1:cartoon', timePoolName: 'Cartoons', startedAt: 1789671660, lastWatchedAt: 1789671675, watchedSeconds: 15, status: 'ended' },
-    ], nextCursor: null, timeZone: settings.timeZone }
+    else if (path.endsWith('/viewing-events')) body = { events: [], nextCursor: null, timeZone: settings.timeZone }
     await route.fulfill({ json: body })
   })
   await page.goto('/admin/child/1/manage')
@@ -192,10 +190,6 @@ test('Admin edits independent time pools, binds content and saves daily unlock c
   await expect(page.getByRole('article', { name: 'General videos time pool' })).toBeHidden()
   await page.getByRole('tab', { name: 'Activity', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Daily Usage Summary' })).toBeVisible()
-  const activity = page.getByRole('listitem').filter({ hasText: 'Episode Unlock' })
-  await expect(activity).toContainText('First episode')
-  await expect(activity).toContainText('1 Unlock Credit · No Watch Time')
-  await expect(page.getByRole('listitem').filter({ hasText: 'Last watched' })).toContainText('0m 15s')
   await page.getByRole('tab', { name: 'Time & limits', exact: true }).click()
   await page.getByText('Viewing hours & breaks', { exact: true }).click()
   const saveRoutine = page.getByRole('button', { name: 'Save viewing routine' })
@@ -212,6 +206,106 @@ test('Admin edits independent time pools, binds content and saves daily unlock c
   await page.getByRole('tab', { name: 'Profile', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Child profile', exact: true })).toBeVisible()
   expect(errors).toEqual([])
+})
+
+test('Activity groups sessions and unlocks and opens days from the usage chart', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-11-20T04:00:00Z'))
+  const child = { id: 1, email: 'admin@example.com', displayName: 'Explorer', role: 'admin' }
+  const video = { videoId: 'jf:494ca5d441aae1fc4025403ad9a3a989', videoTitle: 'First episode', channelTitle: 'Adventure cartoons' }
+  const epoch = (time: string) => Date.parse(time) / 1000
+  const session: PlaybackViewingEvent = {
+    kind: 'playback', ...video, sessionId: 'first', usageBucket: 'cartoon', timePoolId: 'pool:1:cartoon', timePoolName: 'Cartoons',
+    startedAt: epoch('2026-11-20T03:02:00Z'), lastWatchedAt: epoch('2026-11-20T03:11:00Z'), watchedSeconds: 540, status: 'ended',
+  }
+  const today: ViewingEvent[] = [
+    { ...session, sessionId: 'second', startedAt: epoch('2026-11-20T03:30:00Z'), lastWatchedAt: epoch('2026-11-20T03:45:00Z'), watchedSeconds: 868, status: 'paused' },
+    session,
+    { kind: 'unlock', ...video, unlockedAt: epoch('2026-11-20T03:00:00Z') },
+  ]
+  const yesterday = { ...session, sessionId: 'yesterday', videoTitle: 'Second episode', startedAt: epoch('2026-11-18T20:00:00Z'), lastWatchedAt: epoch('2026-11-18T20:09:00Z') }
+  const older = { ...session, sessionId: 'older', videoTitle: 'Earlier episode', startedAt: epoch('2026-11-10T16:00:00Z'), lastWatchedAt: epoch('2026-11-10T16:10:00Z'), watchedSeconds: 600 }
+  const totals = { '2026-11-10': 600, '2026-11-18': 540, '2026-11-19': 1408 }
+  const requestedDays: (string | null)[] = []
+  await page.route('**/api/**', async route => {
+    const { pathname: path, searchParams } = new URL(route.request().url())
+    let body: unknown = {}
+    if (path === '/api/auth/session') body = { user: child }
+    else if (path === '/api/admin/children') body = { children: [child] }
+    else if (path.endsWith('/content')) body = { child, channels: [], playlists: [], videos: [], videoRules: [] }
+    else if (path.endsWith('/usage')) {
+      const days = Number(searchParams.get('days'))
+      body = { days: Array.from({ length: days }, (_, index) => {
+        const viewingDay = new Date(Date.UTC(2026, 10, 20 - days + index)).toISOString().slice(0, 10)
+        return { viewingDay, totalSeconds: totals[viewingDay as keyof typeof totals] ?? 0 }
+      }) }
+    } else if (path.endsWith('/viewing-events')) {
+      const day = searchParams.get('day')
+      requestedDays.push(day)
+      body = { events: day === '2026-11-10' ? [older] : day === '2026-11-18' ? [yesterday] : day ? [] : [...today, yesterday], nextCursor: day ? null : 'older-pages', timeZone: 'America/Los_Angeles', retentionDays: 30 }
+    }
+    await route.fulfill({ json: body })
+  })
+  await page.goto('/admin/child/1/manage')
+  await page.getByRole('tab', { name: 'Activity', exact: true }).click()
+  const daySection = (name: string) => page.locator('[data-viewing-day]').filter({ has: page.getByRole('heading', { name }) })
+  const todaySection = daySection('Today · Thu, Nov 19')
+  const grouped = todaySection.getByRole('button', { name: /First episode/ })
+  await expect(todaySection).toContainText('23m 28s watched')
+  await expect(todaySection).toContainText('1 video')
+  await expect(todaySection).toContainText('1 unlock')
+  await expect(grouped).toHaveCount(1)
+  await expect(grouped).toContainText('Adventure cartoons')
+  await expect(grouped).toContainText('Unlocked')
+  await expect(grouped).toContainText('2 sessions')
+  await expect(grouped).toContainText('Cartoons')
+  await expect(grouped).not.toContainText(video.videoId)
+  await expect(grouped).toHaveAttribute('aria-expanded', 'false')
+  expect((await grouped.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  await grouped.tap()
+  await expect(grouped).toHaveAttribute('aria-expanded', 'true')
+  await expect(todaySection.getByText('7:02 PM – 7:11 PM', { exact: true })).toBeVisible()
+  await expect(todaySection.getByText('Paused', { exact: true })).toBeVisible()
+  await expect(todaySection.getByText('Unlocked at 7:00 PM', { exact: true })).toBeVisible()
+  await expect(todaySection.getByText('ended', { exact: true })).toHaveCount(0)
+
+  const currentBar = page.getByRole('button', { name: 'Nov 19 · 23m 28s watched' })
+  await currentBar.tap()
+  await expect(currentBar).toHaveAttribute('aria-pressed', 'true')
+  await expect(todaySection.getByRole('heading')).toBeInViewport()
+  expect(requestedDays).toEqual([null])
+  await currentBar.click()
+  await expect(currentBar).toHaveAttribute('aria-pressed', 'false')
+
+  await page.getByRole('button', { name: 'Nov 18 · 9m watched' }).click()
+  await expect(daySection('Yesterday · Wed, Nov 18')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Load older events' })).toBeHidden()
+  expect(requestedDays).toEqual([null, '2026-11-18'])
+
+  await page.getByRole('combobox', { name: 'Usage date range' }).click()
+  await page.getByRole('option', { name: '30 days' }).click()
+  const olderBar = page.getByRole('button', { name: 'Nov 10 · 10m watched' })
+  for (const size of [{ width: 820, height: 1180 }, { width: 1180, height: 820 }]) {
+    await page.setViewportSize(size)
+    await expect(olderBar).toBeVisible()
+    expect((await olderBar.boundingBox())!.width).toBeGreaterThanOrEqual(44)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
+  await olderBar.tap()
+  await expect(olderBar).toHaveAttribute('aria-pressed', 'true')
+  await expect(daySection('Tue, Nov 10').getByText('Earlier episode')).toBeInViewport()
+  await expect(todaySection).toBeHidden()
+  await page.getByRole('button', { name: 'Showing Nov 10 · Show all days' }).tap()
+  await expect(todaySection).toBeVisible()
+  await expect(olderBar).toHaveAttribute('aria-pressed', 'false')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.reload()
+  await expect(page.locator('html')).toHaveClass(/\bdark\b/)
+  await page.getByRole('tab', { name: 'Activity', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Usage date range' }).click()
+  await page.getByRole('option', { name: '30 days' }).click()
+  await page.getByRole('button', { name: 'Oct 21 · 0s watched' }).click()
+  await expect(page.getByText('No viewing events or unlocks on Oct 21.')).toBeVisible()
+  expect(requestedDays).toEqual([null, '2026-11-18', '2026-11-10', null, '2026-10-21'])
 })
 
 test('Admin dashboard pauses a Child and grants minutes to one Time Pool', async ({ page }) => {

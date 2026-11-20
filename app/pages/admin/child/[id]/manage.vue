@@ -40,6 +40,10 @@ const {
   confirmation.value = { title: 'Save reduced allowances?', description, label: 'Save allowances', run }
 })
 const poolData = ref<TimePoolsResponse | null>(null)
+const selectedActivityDay = ref<string | null>(null)
+watch(usage, summary => {
+  if (summary && !summary.days.some(day => day.viewingDay === selectedActivityDay.value)) selectedActivityDay.value = null
+})
 const contentRuleOptions = computed(() => (poolData.value?.pools ?? []).map(pool => ({ label: pool.name, value: pool.id })))
 function boundPool(kind: TimePoolBinding['kind'], contentId: string, legacyKey = 'restricted') {
   return poolData.value?.bindings.find(b => b.kind === kind && b.contentId === contentId)?.poolId
@@ -574,15 +578,15 @@ function formatPublishedDate(value: string | null): string {
     <UCard class="my-5 rounded-2xl ring-1 ring-[var(--zt-border)]">
       <template #header>
         <div class="flex items-center justify-between gap-3">
-          <div><h2 class="font-semibold">Daily Usage Summary</h2><p class="text-xs text-[var(--zt-muted)]">Total watch time by day, in minutes.</p></div>
-          <USelect v-model="usageDays" :items="[{ label: '7 days', value: 7 }, { label: '30 days', value: 30 }]" class="min-h-11 w-28" />
+          <h2 class="font-semibold">Daily Usage Summary</h2>
+          <USelect v-model="usageDays" aria-label="Usage date range" :items="[{ label: '7 days', value: 7 }, { label: '30 days', value: 30 }]" class="min-h-11 w-28" />
         </div>
       </template>
       <p v-if="usageError" role="alert" class="text-sm text-[var(--zt-error)]">{{ usageError }} <UButton variant="ghost" class="min-h-11" @click="refreshUsage">Retry</UButton></p>
       <p v-else-if="usageLoading" class="text-sm text-[var(--zt-muted)]">Loading usage…</p>
-      <DailyUsageChart v-else-if="usage" :days="usage.days" />
+      <DailyUsageChart v-else-if="usage" v-model:selected-day="selectedActivityDay" :days="usage.days" />
     </UCard>
-    <ViewingEvents :key="childId" :child-id="childId" />
+    <ViewingEvents :key="childId" v-model:selected-day="selectedActivityDay" :child-id="childId" :daily-totals="usage?.days" />
     </section>
 
   </div>

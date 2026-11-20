@@ -230,7 +230,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.get('/api/admin/children/:id/viewing-events', async c => {
     const { db, childId } = await adminChild(c)
     const settings = await ensureTimeSettings(db, childId)
-    return c.json(await viewingEvents(c.env.DB, childId, settings.timeZone, now(), c.req.query('cursor')))
+    return c.json(await viewingEvents(c.env.DB, childId, settings.timeZone, now(), c.req.query('cursor'), c.req.query('day')))
   })
 
   app.get('/api/admin/children/:id/usage', async c => {

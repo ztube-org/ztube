@@ -1,6 +1,6 @@
 import { HTTPException } from 'hono/http-exception'
 import type { PlaybackViewingEvent, EpisodeUnlockEvent, ViewingEventsResponse } from '../../src/viewing-events.ts'
-import { epochSeconds } from '../utils/viewing-day.ts'
+import { epochSeconds, viewingDaySegments } from '../utils/viewing-day.ts'
 
 export const VIEWING_EVENT_RETENTION_DAYS = 30
 const PAGE_SIZE = 50
@@ -22,7 +22,18 @@ type ActivityRow = {
   status: PlaybackViewingEvent['status'] | null
 }
 
-export async function viewingEvents(binding: D1Database, childId: number, timeZone: string, instant: Date, cursor?: string): Promise<ViewingEventsResponse> {
+function viewingDayBounds(day: string, timeZone: string) {
+  const date = new Date(`${day}T00:00:00Z`)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== day) {
+    throw new HTTPException(400, { message: 'Invalid Viewing Day' })
+  }
+  const anchor = date.getTime()
+  return viewingDaySegments(new Date(anchor - 86_400_000), new Date(anchor + 172_800_000), timeZone, {
+    weekdayAllowanceMinutes: 0, weekendAllowanceMinutes: 0,
+  }).find(segment => segment.viewingDay === day)
+}
+
+export async function viewingEvents(binding: D1Database, childId: number, timeZone: string, instant: Date, cursor?: string, day?: string): Promise<ViewingEventsResponse> {
   let before: [number, string] | null = null
   if (cursor) {
     try {
@@ -34,6 +45,13 @@ export async function viewingEvents(binding: D1Database, childId: number, timeZo
   }
   const epoch = epochSeconds(instant)
   const cutoff = epoch - VIEWING_EVENT_RETENTION_DAYS * 86400
+  const bounds = day === undefined ? undefined : viewingDayBounds(day, timeZone)
+  if (day !== undefined && (!bounds || bounds.endEpoch <= cutoff || bounds.startEpoch > epoch)) {
+    return { events: [], nextCursor: null, timeZone, retentionDays: VIEWING_EVENT_RETENTION_DAYS }
+  }
+  const filters = []
+  if (bounds) filters.push('occurredAt >= ? AND occurredAt < ?')
+  if (before) filters.push('(occurredAt, eventKey) < (?, ?)')
   const result = await binding.prepare(`
     WITH activity AS (
       SELECT 'playback' AS kind, 'p:' || e.session_id AS eventKey, e.started_at AS occurredAt,
@@ -65,9 +83,9 @@ export async function viewingEvents(binding: D1Database, childId: number, timeZo
       FROM episode_unlocks u WHERE u.child_id = ? AND u.unlocked_at >= ?
     )
     SELECT * FROM activity
-    ${before ? 'WHERE (occurredAt, eventKey) < (?, ?)' : ''}
+    ${filters.length ? `WHERE ${filters.join(' AND ')}` : ''}
     ORDER BY occurredAt DESC, eventKey DESC LIMIT ?
-  `).bind(epoch, childId, cutoff, childId, cutoff, ...(before ?? []), PAGE_SIZE + 1).all<ActivityRow>()
+  `).bind(epoch, childId, cutoff, childId, cutoff, ...(bounds ? [bounds.startEpoch, bounds.endEpoch] : []), ...(before ?? []), PAGE_SIZE + 1).all<ActivityRow>()
   const rows = result.results.slice(0, PAGE_SIZE)
   const events = rows.map((row): PlaybackViewingEvent | EpisodeUnlockEvent => row.kind === 'unlock'
     ? { kind: 'unlock', videoId: row.videoId, videoTitle: row.videoTitle, channelTitle: row.channelTitle, unlockedAt: row.occurredAt }
