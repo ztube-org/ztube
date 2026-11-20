@@ -145,8 +145,11 @@ test('shows Recommendations until opened and stores Favorites and unfinished pla
   assert.equal(authorization.resumeAt, 0)
   assert.equal((await (await request('/api/child/browse')).json() as any).recommendations.length, 0)
 
-  const heartbeat = await request(`/api/child/playback-authorizations/${authorization.sessionId}/heartbeats`, json({ sequence: 1, state: 'playing', positionSeconds: 120 }))
+  const heartbeatPath = `/api/child/playback-authorizations/${authorization.sessionId}/heartbeats`
+  const heartbeat = await request(heartbeatPath, json({ sequence: 1, state: 'playing', positionSeconds: 120 }))
   assert.equal(heartbeat.status, 200)
+  const duplicate = await request(heartbeatPath, json({ sequence: 1, state: 'ended', positionSeconds: 600 }))
+  assert.equal((await duplicate.json() as any).accepted, false)
   const home = await (await request('/api/child/browse')).json() as any
   assert.equal(home.favorites[0].videoId, 'favorite')
   assert.equal(home.continueWatching[0].positionSeconds, 120)
@@ -234,6 +237,7 @@ test('search finds older cached videos, excludes other Children and shorts, and 
   `)
   const insert = d1.sqlite.prepare('INSERT INTO channel_videos (channel_id, video_id, video_title, duration, position) VALUES (?, ?, ?, 600, ?)')
   for (let i = 0; i < 65; i++) insert.run('channel', `video-${i}`, i === 64 ? 'Deep ocean 100%' : `Science ${i}`, i)
+  d1.sqlite.exec("UPDATE channel_videos SET published_at = 2 WHERE video_id IN ('video-3', 'video-9'); UPDATE channel_videos SET published_at = 1 WHERE video_id = 'video-64'")
   const source = await (await request('/api/child/channel/100/videos?q=ocean')).json() as any
   assert.deepEqual(source.videos.map((video: any) => video.videoId), ['video-64'])
   assert.equal(source.nextPage, null)
@@ -244,6 +248,7 @@ test('search finds older cached videos, excludes other Children and shorts, and 
   const tagged = await (await request('/api/child/search?tag=Science')).json() as any
   const next = await (await request('/api/child/search?tag=Science&page=1')).json() as any
   assert.equal(tagged.videos.length, 50)
+  assert.deepEqual(tagged.videos.slice(0, 3).map((video: any) => video.videoId), ['video-3', 'video-9', 'video-64'])
   assert.equal(next.videos.length, 15)
   assert.equal(next.nextPage, null)
   assert.equal(new Set([...tagged.videos, ...next.videos].map((video: any) => video.videoId)).size, 65)

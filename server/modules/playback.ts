@@ -6,7 +6,7 @@ import { resolveMediaUrl } from './webdav-client.ts'
 import type { Context, Hono } from 'hono'
 import { getJellyfinServer, prepareJellyfinMedia, jellyfinDirectUrl, directMp4Source } from './jellyfin-client.ts'
 import { HTTPException } from 'hono/http-exception'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import * as v from 'valibot'
 import * as schema from '../database/schema.ts'
 import type { AppEnv } from './identity.ts'
@@ -219,8 +219,32 @@ export function registerPlaybackRoutes(app: Hono<AppEnv>, now: () => Date) {
     const acknowledgedEpoch = epochSeconds(acknowledgedAt)
     const nextLeaseEpoch = acknowledgedEpoch + PLAYBACK_LEASE_SECONDS
     const chargeStatements = settlementStatements(c.env.DB, session, settings, acknowledgedAt, input.sequence)
+    const progressStatements: D1PreparedStatement[] = []
+    const duration = metadata.duration ?? 0
+    const completed = input.state === 'ended' || (duration > 0 && (input.positionSeconds >= duration * 0.9 || duration - input.positionSeconds <= 30))
+    // Use the same acceptance guard as the session update while the batch still holds the old sequence.
+    const acceptingHeartbeat = 'EXISTS (SELECT 1 FROM playback_sessions WHERE id = ? AND child_id = ? AND ended_at IS NULL AND last_sequence < ?)'
+    const heartbeatKey = [session.id, user.id, input.sequence] as const
+    if (session.videoId && completed) {
+      progressStatements.push(c.env.DB.prepare(`DELETE FROM playback_progress WHERE child_id = ? AND video_id = ? AND ${acceptingHeartbeat}`)
+        .bind(user.id, session.videoId, ...heartbeatKey))
+    } else if (session.videoId && input.positionSeconds >= 30 && duration > 0) {
+      progressStatements.push(c.env.DB.prepare(`
+        INSERT INTO playback_progress (child_id, video_id, position_seconds, duration, video_title, video_thumbnail, channel_title, published_at, updated_at)
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE ${acceptingHeartbeat}
+        ON CONFLICT(child_id, video_id) DO UPDATE SET position_seconds = excluded.position_seconds, duration = excluded.duration,
+          video_title = excluded.video_title, video_thumbnail = excluded.video_thumbnail, channel_title = excluded.channel_title,
+          published_at = excluded.published_at, updated_at = excluded.updated_at
+      `).bind(user.id, session.videoId, input.positionSeconds, duration, metadata.videoTitle, metadata.videoThumbnail,
+        metadata.channelTitle, metadata.publishedAt ? epochSeconds(metadata.publishedAt) : null, acknowledgedEpoch, ...heartbeatKey))
+      progressStatements.push(c.env.DB.prepare(`
+        DELETE FROM playback_progress WHERE child_id = ? AND ${acceptingHeartbeat}
+          AND id NOT IN (SELECT id FROM playback_progress WHERE child_id = ? ORDER BY updated_at DESC, id DESC LIMIT 10)
+      `).bind(user.id, ...heartbeatKey, user.id))
+    }
     const results = await c.env.DB.batch([
       ...chargeStatements,
+      ...progressStatements,
       c.env.DB.prepare(`
         UPDATE playback_sessions SET
           viewing_day = ?, last_sequence = ?, last_acknowledged_at = ?,
@@ -232,9 +256,9 @@ export function registerPlaybackRoutes(app: Hono<AppEnv>, now: () => Date) {
       `).bind(day.localDate, input.sequence, acknowledgedEpoch, acknowledgedEpoch, input.state, input.state,
         acknowledgedEpoch, input.state, nextLeaseEpoch, acknowledgedEpoch, input.state, acknowledgedEpoch,
         acknowledgedEpoch, input.state,
-        session.id, user.id!, input.sequence),
+        ...heartbeatKey),
     ])
-    const accepted = Number(results[chargeStatements.length].meta.changes ?? 0) > 0
+    const accepted = Number(results.at(-1)?.meta.changes ?? 0) > 0
     const [updatedSession, usage] = await Promise.all([
       playbackReads(db).session().execute({ id: session.id, childId: user.id }),
       dailyUsage(db, user.id!, day.localDate),
@@ -243,24 +267,10 @@ export function registerPlaybackRoutes(app: Hono<AppEnv>, now: () => Date) {
     const policy = playbackPolicyAt(acknowledgedAt, settings, usage)
     const authorized = accepted && updatedSession?.endedAt === null && !settledPool.locked && !policy.blocked
     if (accepted && !authorized && updatedSession?.endedAt === null) {
-      await db.update(schema.playbackSessions).set({ lastState: 'ended', endedAt: acknowledgedAt, videoId: null }).where(and(eq(schema.playbackSessions.id, session.id), isNull(schema.playbackSessions.endedAt)))
-    }
-    if (accepted && session.videoId) {
-      const duration = metadata?.duration ?? 0
-      const completed = input.state === 'ended' || (duration > 0 && (input.positionSeconds >= duration * 0.9 || duration - input.positionSeconds <= 30))
-      if (completed) {
-        await db.delete(schema.playbackProgress).where(and(eq(schema.playbackProgress.childId, user.id!), eq(schema.playbackProgress.videoId, session.videoId)))
-      } else if (metadata && input.positionSeconds >= 30 && duration > 0) {
-        await db.insert(schema.playbackProgress).values({
-          childId: user.id!, videoId: session.videoId, positionSeconds: input.positionSeconds, duration,
-          videoTitle: metadata.videoTitle, videoThumbnail: metadata.videoThumbnail, channelTitle: metadata.channelTitle,
-          publishedAt: metadata.publishedAt, updatedAt: acknowledgedAt,
-        }).onConflictDoUpdate({
-          target: [schema.playbackProgress.childId, schema.playbackProgress.videoId],
-          set: { positionSeconds: input.positionSeconds, duration, videoTitle: metadata.videoTitle, videoThumbnail: metadata.videoThumbnail, channelTitle: metadata.channelTitle, publishedAt: metadata.publishedAt, updatedAt: acknowledgedAt },
-        })
-        await c.env.DB.prepare('DELETE FROM playback_progress WHERE child_id = ? AND id NOT IN (SELECT id FROM playback_progress WHERE child_id = ? ORDER BY updated_at DESC LIMIT 10)').bind(user.id!, user.id!).run()
-      }
+      await c.env.DB.prepare(`
+        UPDATE playback_sessions SET last_state = 'ended', ended_at = ?, video_id = NULL
+        WHERE id = ? AND child_id = ? AND ended_at IS NULL AND last_sequence = ?
+      `).bind(acknowledgedEpoch, ...heartbeatKey).run()
     }
     return c.json({
       accepted,

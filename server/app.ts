@@ -12,15 +12,16 @@ import { resolveUser, adminEmails, requireRole, type CurrentUser, type AppEnv } 
 import { writeContentCache } from './modules/content-cache.ts'
 import { endActivePlayback } from './modules/playback-ledger.ts'
 import { approvedVideoMetadata, resolveApprovedVideos, videosWithResolvedRules, isShortDuration, excludeUnsupportedVideos } from './modules/catalog.ts'
-import { ensureTimeSettings, dailyUsage, ensureDailyUsage, effectiveLimits, watchTimeStatus, adminWatchTimeStatus } from './modules/usage.ts'
+import { ensureTimeSettings, dailyUsage, dailyUsageHistory, ensureDailyUsage, effectiveLimits, watchTimeStatus, adminWatchTimeStatus } from './modules/usage.ts'
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { and, count, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm'
+import { routePath } from 'hono/route'
+import { and, count, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/d1'
 import * as v from 'valibot'
 import * as schema from './database/schema.ts'
 import { playbackPolicyAt } from './utils/playback-policy.ts'
-import { syncApprovedContent } from './utils/content-sync.ts'
+import { syncApprovedContent, type SyncTarget } from './utils/content-sync.ts'
 import { epochSeconds, isValidTimeZone, viewingDayAt } from './utils/viewing-day.ts'
 import { parseYouTubeUrl } from './utils/youtube.ts'
 import {
@@ -61,6 +62,18 @@ export type AppDependencies = {
   resolveUser?: (request: Request, env: Env) => Promise<CurrentUser>
 }
 
+function startInitialSync(c: ApiContext, target: SyncTarget, instant: Date) {
+  const sync = syncApprovedContent(c.env, { target, now: instant }).catch(() => {
+    console.error(JSON.stringify({ event: 'initial_content_sync_failed', type: target.type, id: target.id }))
+  })
+  try {
+    c.executionCtx.waitUntil(sync)
+  } catch {
+    // Hono requests made without a Worker execution context still start the sync.
+    void sync
+  }
+}
+
 export function createApp(dependencies: AppDependencies = {}) {
   const now = dependencies.now ?? (() => new Date())
   const userResolver = dependencies.resolveUser ?? resolveUser
@@ -75,8 +88,12 @@ export function createApp(dependencies: AppDependencies = {}) {
     if (error instanceof HTTPException) return c.json({ message: error.message }, error.status)
     if (error instanceof YouTubeApiError) return c.json({ message: error.message }, 502)
     if (error instanceof v.ValiError) return c.json({ message: 'Invalid request', issues: error.issues }, 400)
-    console.error(JSON.stringify({ event: 'request_error', message: error.message }))
-    return c.json({ message: 'Internal server error' }, 500)
+    const message = 'Internal server error'
+    console.error(JSON.stringify({
+      event: 'request_error', method: c.req.method, path: routePath(c), message,
+      name: error instanceof TypeError ? 'TypeError' : error instanceof SyntaxError ? 'SyntaxError' : 'Error',
+    }))
+    return c.json({ message }, 500)
   })
 
   app.get('/api/auth/session', c => c.json({ user: c.get('user') }))
@@ -219,19 +236,7 @@ export function createApp(dependencies: AppDependencies = {}) {
     const settings = await ensureTimeSettings(db, childId)
     const currentDay = viewingDayAt(now(), settings.timeZone, settings).localDate
     const viewingDays = recentViewingDays(currentDay, days)
-    const rows = await db.query.dailyUsageSummaries.findMany({
-      where: and(eq(schema.dailyUsageSummaries.childId, childId), gte(schema.dailyUsageSummaries.viewingDay, viewingDays[0])),
-      orderBy: [desc(schema.dailyUsageSummaries.viewingDay)],
-    })
-    const byDay = new Map(rows.map(row => [row.viewingDay, row]))
-    const poolUsage = await db.query.timePoolUsage.findMany({ where: and(eq(schema.timePoolUsage.childId, childId), gte(schema.timePoolUsage.viewingDay, viewingDays[0])) })
-    return c.json({ days: viewingDays.map(viewingDay => {
-      const usage = byDay.get(viewingDay)
-      const restrictedSeconds = usage?.restrictedSeconds ?? 0
-      const exemptSeconds = usage?.exemptSeconds ?? 0
-      const cartoonSeconds = usage?.cartoonSeconds ?? 0
-      return { viewingDay, restrictedSeconds, exemptSeconds, cartoonSeconds, totalSeconds: poolUsage.filter(row => row.viewingDay === viewingDay).reduce((total, row) => total + row.usedSeconds, 0) }
-    }) })
+    return c.json({ days: await dailyUsageHistory(db, childId, viewingDays) })
   })
 
   app.get('/api/admin/children/:id/content', async c => {
@@ -397,6 +402,7 @@ export function createApp(dependencies: AppDependencies = {}) {
         target: [schema.allowedPlaylists.childId, schema.allowedPlaylists.playlistId],
         set: { playlistTitle: item.title, playlistThumbnail: item.thumbnail, isAvailable: true },
       }).returning()
+      startInitialSync(c, { type: 'playlist', id: content.id }, now())
       return c.json({ type: 'playlist', content })
     }
     const item = await fetchChannelMetadata(parsed.id, c.env.YOUTUBE_API_KEY)
@@ -404,6 +410,7 @@ export function createApp(dependencies: AppDependencies = {}) {
       target: [schema.allowedChannels.childId, schema.allowedChannels.channelId],
       set: { uploadsPlaylistId: item.uploadsPlaylistId, channelTitle: item.title, channelThumbnail: item.thumbnail, isAvailable: true },
     }).returning()
+    startInitialSync(c, { type: 'channel', id: content.id }, now())
     return c.json({ type: 'channel', content })
   })
 

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { createApp } from './app.ts'
 import { drizzle } from 'drizzle-orm/d1'
 import * as schema from './database/schema.ts'
 import { resolveApprovedVideos } from './modules/catalog.ts'
@@ -18,8 +19,45 @@ test('bulk content resolution stays within D1 parameter limits for a large favor
   d1.prepare = sql => { queries++; return prepare(sql) }
   const videos = await resolveApprovedVideos(drizzle(d1 as unknown as D1Database, { schema }), 1, ids)
   assert.equal(videos.size, 200)
-  assert.equal(queries, 5) // Two pool/binding reads plus three bounded catalog batches.
+  assert.equal(queries, 1)
   assert.ok([...videos.values()].every(video => video.contentRule === 'restricted' && video.supported))
+})
+
+test('adding a YouTube channel or playlist starts its sync in the background', async t => {
+  const d1 = new IsolatedD1()
+  await migrate(d1)
+  d1.sqlite.exec("INSERT INTO children (id, email) VALUES (1, 'admin@example.com')")
+  const app = createApp({ resolveUser: async () => ({ id: 1, email: 'admin@example.com', displayName: null, avatarUrl: null, role: 'admin' }) })
+  const env = { DB: d1 as unknown as D1Database, YOUTUBE_API_KEY: 'test-key' } as Env
+  const work: Promise<unknown>[] = []
+  const ctx = { waitUntil(p: Promise<unknown>) { work.push(p) } }
+  let finishPage!: () => void
+  const pageReady = new Promise<void>(resolve => { finishPage = resolve })
+  t.mock.method(globalThis, 'fetch', async (input: string) => {
+    const url = new URL(input)
+    if (url.pathname.endsWith('/channels')) return Response.json({ items: [{ id: 'UCchannel', snippet: { title: 'Channel' }, contentDetails: { relatedPlaylists: { uploads: 'UUuploads' } } }] })
+    if (url.pathname.endsWith('/playlists')) return Response.json({ items: [{ id: 'PLplaylist', snippet: { title: 'Playlist' } }] })
+    if (url.pathname.endsWith('/playlistItems')) {
+      await pageReady
+      return Response.json({ items: [{ contentDetails: { videoId: 'initial-video' }, snippet: { title: 'Initial video' } }] })
+    }
+    return Response.json({ items: [{ id: 'initial-video', snippet: { title: 'Initial video' }, contentDetails: { duration: 'PT10M' } }] })
+  })
+  const add = (url: string) => app.request('/api/admin/content/add', {
+    method: 'POST', body: JSON.stringify({ childId: 1, url }),
+  }, env, ctx)
+  try {
+    assert.equal((await add('https://www.youtube.com/@channel')).status, 200)
+    assert.equal((await add('https://www.youtube.com/playlist?list=PLplaylist')).status, 200)
+    assert.equal(work.length, 2)
+    assert.equal(d1.sqlite.prepare('SELECT count(*) AS count FROM channel_videos').get()?.count, 0)
+    assert.equal(d1.sqlite.prepare('SELECT count(*) AS count FROM playlist_videos').get()?.count, 0)
+  } finally {
+    finishPage()
+    await Promise.all(work)
+  }
+  assert.equal(d1.sqlite.prepare('SELECT video_id FROM channel_videos').get()?.video_id, 'initial-video')
+  assert.equal(d1.sqlite.prepare('SELECT video_id FROM playlist_videos').get()?.video_id, 'initial-video')
 })
 
 test('shared sources sync once and update freshness for every Child without changing their rules', async () => {

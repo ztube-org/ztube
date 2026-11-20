@@ -27,9 +27,23 @@ export async function apiFetch<T>(url: string, init?: Omit<RequestInit, 'body'> 
     options.headers = { ...options.headers, 'Content-Type': 'application/json' }
   } else if (typeof body === 'string') options.body = body
   const response = await fetch(url, options)
-  const responseBody = await response.json() as T & { message?: string }
-  if (!response.ok) throw new ApiError(responseBody.message || `Request failed (${response.status})`, response.status, responseBody)
-  return responseBody
+  const fallback = `Request failed (${response.status})`
+  let responseBody: unknown
+  try {
+    responseBody = await response.json()
+  } catch {
+    const html = response.headers.get('content-type')?.includes('text/html')
+    const sessionExpired = response.status === 401 || (html && (response.redirected || response.status === 403))
+    const message = sessionExpired ? 'Your session may have expired. Reload the page to sign in again.'
+      : response.ok ? 'The server returned an unexpected response. Reload the page and try again.' : fallback
+    throw new ApiError(message, response.status, {})
+  }
+  if (!response.ok) {
+    const details = responseBody && typeof responseBody === 'object' ? responseBody as Record<string, unknown> : {}
+    const message = typeof details.message === 'string' && details.message ? details.message : fallback
+    throw new ApiError(message, response.status, details)
+  }
+  return responseBody as T
 }
 
 export function useApi<T>(url: string) {

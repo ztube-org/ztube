@@ -1,5 +1,5 @@
 import { playbackReads } from '../database/playback-reads.ts'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/d1'
 import { HTTPException } from 'hono/http-exception'
 import * as schema from '../database/schema.ts'
@@ -15,23 +15,63 @@ export async function ensureTimeSettings(db: ReturnType<typeof drizzle<typeof sc
   return settings
 }
 
+type DailyUsageRow = {
+  viewingDay: string
+  restrictedSeconds: number
+  exemptSeconds: number
+  cartoonSeconds: number
+  customPoolSeconds: number
+  restrictedExtensionMinutes: number
+  exemptExtensionMinutes: number
+  restrictedUnlocked: number
+  playbackPaused: number
+  breakCycleSeconds: number
+  breakUntil: number | null
+}
+
+async function usageForDays(db: ReturnType<typeof drizzle<typeof schema>>, childId: number, viewingDays: string[]) {
+  return db.all<DailyUsageRow>(sql`
+    SELECT day.value AS viewingDay,
+      coalesce(max(CASE WHEN p.legacy_key = 'restricted' THEN u.used_seconds END), s.restricted_seconds, 0) AS restrictedSeconds,
+      coalesce(max(CASE WHEN p.legacy_key = 'exempt' THEN u.used_seconds END), s.exempt_seconds, 0) AS exemptSeconds,
+      coalesce(max(CASE WHEN p.legacy_key = 'cartoon' THEN u.used_seconds END), s.cartoon_seconds, 0) AS cartoonSeconds,
+      coalesce(sum(CASE WHEN p.legacy_key IS NULL THEN u.used_seconds END), 0) AS customPoolSeconds,
+      coalesce(max(CASE WHEN p.legacy_key = 'restricted' THEN u.extension_minutes END), s.restricted_extension_minutes, 0) AS restrictedExtensionMinutes,
+      coalesce(max(CASE WHEN p.legacy_key = 'exempt' THEN u.extension_minutes END), s.exempt_extension_minutes, 0) AS exemptExtensionMinutes,
+      coalesce(max(CASE WHEN p.legacy_key = 'restricted' THEN u.unlocked END), s.restricted_unlocked, 0) AS restrictedUnlocked,
+      coalesce(s.playback_paused, 0) AS playbackPaused, coalesce(s.break_cycle_seconds, 0) AS breakCycleSeconds,
+      s.break_until AS breakUntil
+    FROM json_each(${JSON.stringify(viewingDays)}) day
+    LEFT JOIN daily_usage_summaries s ON s.child_id = ${childId} AND s.viewing_day = day.value
+    LEFT JOIN time_pools p ON p.child_id = ${childId}
+    LEFT JOIN time_pool_usage u ON u.pool_id = p.id AND u.viewing_day = day.value
+    GROUP BY day.key ORDER BY day.key
+  `)
+}
+
+export async function dailyUsageHistory(db: ReturnType<typeof drizzle<typeof schema>>, childId: number, viewingDays: string[]) {
+  const rows = await usageForDays(db, childId, viewingDays)
+  return rows.map(({ viewingDay, restrictedSeconds, exemptSeconds, cartoonSeconds, customPoolSeconds }) => ({
+    viewingDay, restrictedSeconds, exemptSeconds, cartoonSeconds,
+    totalSeconds: customPoolSeconds + restrictedSeconds + exemptSeconds + cartoonSeconds,
+  }))
+}
+
 export async function dailyUsage(db: ReturnType<typeof drizzle<typeof schema>>, childId: number, viewingDay: string, instant?: Date) {
-  let summary = await playbackReads(db).usage().execute({ childId, day: viewingDay })
-  if (instant && summary?.breakUntil && summary.breakUntil.getTime() <= instant.getTime()) {
+  const [row] = await usageForDays(db, childId, [viewingDay])
+  const { cartoonSeconds, restrictedSeconds, exemptSeconds, restrictedExtensionMinutes, exemptExtensionMinutes } = row
+  let breakUntil = row.breakUntil === null ? null : new Date(row.breakUntil * 1000)
+  let breakCycleSeconds = row.breakCycleSeconds
+  if (instant && breakUntil && breakUntil.getTime() <= instant.getTime()) {
     await db.update(schema.dailyUsageSummaries).set({ breakCycleSeconds: 0, breakUntil: null, updatedAt: instant })
-      .where(and(eq(schema.dailyUsageSummaries.childId, childId), eq(schema.dailyUsageSummaries.viewingDay, viewingDay), eq(schema.dailyUsageSummaries.breakUntil, summary.breakUntil)))
-    summary = { ...summary, breakCycleSeconds: 0, breakUntil: null, updatedAt: instant }
+      .where(and(eq(schema.dailyUsageSummaries.childId, childId), eq(schema.dailyUsageSummaries.viewingDay, viewingDay), eq(schema.dailyUsageSummaries.breakUntil, breakUntil)))
+    breakUntil = null
+    breakCycleSeconds = 0
   }
   return {
-    cartoonSeconds: summary?.cartoonSeconds ?? 0,
-    restrictedSeconds: summary?.restrictedSeconds ?? 0,
-    exemptSeconds: summary?.exemptSeconds ?? 0,
-    restrictedExtensionMinutes: summary?.restrictedExtensionMinutes ?? 0,
-    exemptExtensionMinutes: summary?.exemptExtensionMinutes ?? 0,
-    restrictedUnlocked: summary?.restrictedUnlocked ?? false,
-    playbackPaused: summary?.playbackPaused ?? false,
-    breakCycleSeconds: summary?.breakCycleSeconds ?? 0,
-    breakUntil: summary?.breakUntil ?? null,
+    cartoonSeconds, restrictedSeconds, exemptSeconds, restrictedExtensionMinutes, exemptExtensionMinutes,
+    restrictedUnlocked: Boolean(row.restrictedUnlocked), playbackPaused: Boolean(row.playbackPaused),
+    breakCycleSeconds, breakUntil,
   }
 }
 

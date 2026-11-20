@@ -3,7 +3,7 @@ import type { Hono, Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import * as v from 'valibot'
 import { requireRole, type AppEnv } from './identity.ts'
-import { approvedVideoMetadata, resolveApprovedVideos } from './catalog.ts'
+import { approvedVideoMetadata, claimRequiredVideos, resolveApprovedVideos } from './catalog.ts'
 import { ensureTimeSettings } from './usage.ts'
 import { cartoonPoolId, poolBalance, poolStatuses } from './time-pools.ts'
 import { endActivePlayback } from './playback-ledger.ts'
@@ -117,23 +117,20 @@ export function registerEpisodeClaimRoutes(app: Hono<AppEnv>, now: () => Date) {
     const unlockedOnly = c.req.query('unlocked') === '1'
     const jellyfinOnly = c.req.query('source') === 'jellyfin'
     const query = (c.req.query('q') ?? '').trim().slice(0, 200).toLowerCase()
-    const rows = await c.env.DB.prepare(`WITH candidates AS (
-      SELECT pv.video_id, pv.video_title, a.playlist_title AS source_title FROM allowed_playlists a JOIN playlist_videos pv ON pv.playlist_id = a.playlist_id WHERE a.child_id = ? AND a.is_available = 1
-      UNION ALL SELECT cv.video_id, cv.video_title, a.channel_title FROM allowed_channels a JOIN channel_videos cv ON cv.channel_id = a.channel_id WHERE a.child_id = ? AND a.is_available = 1
-      UNION ALL SELECT video_id, video_title, coalesce(channel_title, '') FROM allowed_videos WHERE child_id = ? AND is_available = 1
-    ) SELECT DISTINCT video_id AS videoId FROM candidates WHERE instr(lower(video_title || ' ' || source_title), ?) > 0
-      AND (? = 0 OR video_id LIKE 'jf:%')
-      AND (? = 0 OR video_id IN (SELECT video_id FROM episode_unlocks WHERE child_id = ?)) ORDER BY video_id LIMIT 49 OFFSET ?`)
-      .bind(childId, childId, childId, query, jellyfinOnly ? 1 : 0, unlockedOnly ? 1 : 0, childId, page * 48).all<{ videoId: string }>()
-    const selectedIds = rows.results.slice(0, 48).map(row => row.videoId)
+    const [candidates, claimed] = await Promise.all([
+      claimRequiredVideos(db, childId, { query, jellyfinOnly, unlockedOnly, page }),
+      resolveApprovedVideos(db, childId, status.claimedVideoIds),
+    ])
+    const selected = candidates.slice(0, 48)
+    const selectedIds = selected.map(video => video.videoId)
     const unlocked = selectedIds.length ? await c.env.DB.prepare('SELECT video_id AS videoId FROM episode_unlocks WHERE child_id = ? AND video_id IN (SELECT value FROM json_each(?))').bind(childId, JSON.stringify(selectedIds)).all<{ videoId: string }>() : { results: [] }
     const unlockedVideoIds = unlocked.results.map(row => row.videoId)
-    const resolved = await resolveApprovedVideos(db, childId, [...selectedIds, ...status.claimedVideoIds])
-    const videos = (ids: string[]): ApprovedVideo[] => ids.flatMap(id => {
-      const video = resolved.get(id)
-      return video?.supported && video.requiresClaim ? [{ ...video, publishedAt: video.publishedAt?.toISOString() ?? null }] : []
+    const serialize = (video: typeof selected[number]): ApprovedVideo => ({ ...video, publishedAt: video.publishedAt?.toISOString() ?? null })
+    const claimedVideos = status.claimedVideoIds.flatMap(id => {
+      const video = claimed.get(id)
+      return video?.supported && video.requiresClaim ? [serialize(video)] : []
     })
-    return c.json({ ...status, unlockedVideoIds, timePools, cartoonTime, videos: videos(selectedIds), claimedVideos: videos(status.claimedVideoIds), nextPage: rows.results.length > 48 ? page + 1 : null })
+    return c.json({ ...status, unlockedVideoIds, timePools, cartoonTime, videos: selected.map(serialize), claimedVideos, nextPage: candidates.length > 48 ? page + 1 : null })
   })
 
   app.post('/api/child/episode-claims', async c => {

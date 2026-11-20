@@ -67,6 +67,28 @@ test('browsing and opening an episode do not claim it; explicit confirmation is 
   assert.equal((await f.claim('ep2')).status, 200, 'siblings have independent claims')
 })
 
+test('Cartoon Pool pages contain only eligible episodes in title order', async () => {
+  const { d1, request } = await fixture()
+  d1.sqlite.exec(`
+    WITH RECURSIVE series(n) AS (VALUES(1) UNION ALL SELECT n + 1 FROM series WHERE n < 60)
+    INSERT INTO allowed_videos (child_id, video_id, video_title, duration)
+    SELECT 1, printf('a-%02d', n), 'Regular video', 600 FROM series;
+    WITH RECURSIVE series(n) AS (VALUES(1) UNION ALL SELECT n + 1 FROM series WHERE n < 48)
+    INSERT INTO playlist_videos (playlist_id, video_id, video_title, duration)
+    SELECT 'cartoons', printf('z-%02d', 49 - n), printf('Season episode %02d', n), 600 FROM series;
+    INSERT INTO time_pools (id, child_id, name, weekday_minutes, weekend_minutes, requires_claim) VALUES ('series', 1, 'Series', 30, 30, 1);
+    INSERT INTO time_pool_bindings (child_id, kind, content_id, pool_id) VALUES (1, 'video', 'a-01', 'series');
+  `)
+  const first = await (await request('/api/child/cartoon-pool')).json() as any
+  assert.equal(first.videos.length, 48)
+  assert.deepEqual(first.videos.slice(0, 5).map((video: any) => video.videoId), ['ep1', 'ep2', 'ep3', 'a-01', 'z-48'])
+  assert.equal(first.nextPage, 1)
+
+  const last = await (await request('/api/child/cartoon-pool?page=1')).json() as any
+  assert.deepEqual(last.videos.map((video: any) => video.videoId), ['z-04', 'z-03', 'z-02', 'z-01'])
+  assert.equal(last.nextPage, null)
+})
+
 test('Admin activity shows confirmed Episode Unlocks without charging Watch Time, even after daily claims are pruned', async () => {
   const f = await fixture()
   const path = '/api/admin/children/1/viewing-events'

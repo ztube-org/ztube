@@ -59,7 +59,8 @@ test('ordinary unlock is isolated from the Safety Cap and expires at local midni
 test('a recurring reduction requires warning confirmation and ends affected Active Playback', async () => {
   const { d1, request } = await fixture()
   d1.sqlite.exec(`
-    UPDATE daily_usage_summaries SET restricted_seconds = 900 WHERE child_id = 10 AND viewing_day = '2026-08-16';
+    DROP TRIGGER time_pool_usage_projection_update;
+    UPDATE time_pool_usage SET used_seconds = 900 WHERE pool_id = 'pool:10:restricted' AND viewing_day = '2026-08-16';
     INSERT INTO playback_sessions (id, child_id, viewing_day, last_sequence, last_state, last_acknowledged_at, lease_expires_at, usage_bucket)
       VALUES ('active', 10, '2026-08-16', 1, 'playing', 1786906800, 1786906860, 'restricted');
   `)
@@ -127,10 +128,19 @@ test('lowering the Break Cycle threshold starts a Required Break including pendi
 })
 
 test('Admin receives a zero-filled 7 or 30 day Daily Usage Summary', async () => {
-  const { request } = await fixture()
+  const { d1, request } = await fixture()
+  d1.sqlite.exec(`
+    DROP TRIGGER time_pool_usage_projection_update;
+    UPDATE time_pool_usage SET used_seconds = 901 WHERE pool_id = 'pool:10:restricted' AND viewing_day = '2026-08-16';
+    DELETE FROM time_pool_usage WHERE pool_id = 'pool:10:exempt' AND viewing_day = '2026-08-16';
+    INSERT INTO time_pools (id, child_id, name, weekday_minutes, weekend_minutes) VALUES ('custom', 10, 'Music', 30, 30);
+    INSERT INTO time_pool_usage (child_id, pool_id, viewing_day, used_seconds) VALUES (10, 'custom', '2026-08-16', 120);
+  `)
+  const status = await (await request('/api/admin/children/10/watch-time')).json() as any
+  assert.equal(status.restricted.usedSeconds, 901)
   const summary = await (await request('/api/admin/children/10/usage?days=7')).json() as any
   assert.equal(summary.days.length, 7)
-  assert.deepEqual(summary.days.at(-1), { viewingDay: '2026-08-16', restrictedSeconds: 301, exemptSeconds: 601, cartoonSeconds: 0, totalSeconds: 902 })
+  assert.deepEqual(summary.days.at(-1), { viewingDay: '2026-08-16', restrictedSeconds: 901, exemptSeconds: 601, cartoonSeconds: 0, totalSeconds: 1622 })
   assert.equal(summary.days[0].totalSeconds, 0)
 })
 

@@ -62,3 +62,18 @@ test('local authentication rejects public hostnames', async t => {
   assert.equal((await app.request('http://localhost:5173/api/auth/session', {}, env)).status, 200)
   assert.equal((await app.request('http://127.0.0.1/api/auth/session', {}, env)).status, 200)
 })
+
+test('unexpected request errors log route context without request or error secrets', async t => {
+  const log = t.mock.method(console, 'error', () => {})
+  const app = createApp({ resolveUser: async () => ({ id: 1, email: 'admin@example.com', displayName: null, avatarUrl: null, role: 'admin' }) })
+  const env = { DB: { prepare() { throw new TypeError('Secret from an upstream failure') } } } as unknown as Env
+  const response = await app.request('/api/admin/children/10/usage?token=query-secret', {
+    headers: { authorization: 'Bearer header-secret' },
+  }, env)
+  assert.equal(response.status, 500)
+  assert.deepEqual(await response.json(), { message: 'Internal server error' })
+  assert.deepEqual(log.mock.calls.map(call => JSON.parse(String(call.arguments[0]))), [{
+    event: 'request_error', method: 'GET', path: '/api/admin/children/:id/usage',
+    message: 'Internal server error', name: 'TypeError',
+  }])
+})
