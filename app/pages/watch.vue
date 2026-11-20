@@ -138,45 +138,47 @@ async function loadMoreRelated() {
             </div>
           </div>
 
-          <section v-if="videoTitle" class="zt-surface mt-3 rounded-xl border p-3" aria-label="Video details">
+          <section v-if="videoTitle" class="zt-panel mt-3 p-3 sm:p-4" aria-label="Video details">
             <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0"><h1 class="text-lg font-semibold leading-6">{{ videoTitle }}</h1><p class="mt-1 text-sm text-[var(--zt-muted)]">{{ channelTitle }}</p></div>
+              <div class="min-w-0"><h1 class="break-words text-xl font-semibold leading-tight">{{ videoTitle }}</h1><p class="mt-1 text-sm text-[var(--zt-muted)]">{{ channelTitle }}</p></div>
               <UButton :icon="favorite ? 'i-heroicons-star-solid' : 'i-heroicons-star'" :variant="favorite ? 'solid' : 'soft'" :loading="favoritePending.has(videoId)" :aria-pressed="favorite" :aria-label="favorite ? 'Remove from Favorites' : 'Add to Favorites'" class="min-h-11 min-w-11 justify-center shrink-0" @click="toggleFavorite(videoId)" />
             </div>
             <p v-if="favoriteError" role="alert" class="mt-2 text-sm text-[var(--zt-error)]">{{ favoriteError }}</p>
-            <details v-if="videoDescription" class="mt-1 text-sm"><summary class="flex min-h-11 cursor-pointer items-center font-medium text-[var(--zt-blue)]">Description</summary><p class="whitespace-pre-wrap text-[var(--zt-muted)]">{{ videoDescription }}</p></details>
+            <details v-if="videoDescription" class="mt-2 border-t border-[var(--zt-border)] text-sm"><summary class="flex min-h-11 cursor-pointer items-center font-medium text-[var(--zt-blue)]">Description</summary><p class="whitespace-pre-wrap break-words pb-1 text-[var(--zt-muted)]">{{ videoDescription }}</p></details>
           </section>
           <div v-if="playlistParam && (nextEpisode || isCurated)" class="mt-3 flex flex-wrap items-center gap-2">
             <UButton v-if="nextEpisode" :to="watchLocation(nextEpisode.videoId)" class="min-h-11">{{ isCurated ? 'Next episode' : 'Next video' }} · {{ nextEpisode.videoTitle }}</UButton>
             <UButton v-if="isCurated" :to="`/browse/playlist/${playlistParam}`" variant="soft" class="min-h-11">Choose season / episode</UButton>
           </div>
-          <UButton v-if="relatedVideos.length" variant="soft" class="mt-3 min-h-11 xl:hidden" :aria-expanded="relatedExpanded" aria-controls="related-videos" @click="relatedExpanded = !relatedExpanded">{{ relatedExpanded ? 'Hide' : 'Show' }} {{ relatedKind.toLowerCase() }} videos</UButton>
+          <UButton v-if="relatedVideos.length" variant="soft" class="zt-watch-related-toggle mt-3 min-h-11" :aria-expanded="relatedExpanded" aria-controls="related-videos" @click="relatedExpanded = !relatedExpanded">{{ relatedExpanded ? 'Hide' : 'Show' }} {{ relatedKind.toLowerCase() }} videos</UButton>
         </main>
 
         <aside v-if="relatedVideos.length" id="related-videos" class="zt-watch-related zt-panel" :class="{ 'zt-watch-related--collapsed': !relatedExpanded }" :aria-label="`${relatedKind} videos`">
-          <div class="border-b border-[var(--zt-border)] px-4 py-3">
-            <p class="text-xs font-semibold uppercase tracking-wide text-[var(--zt-muted)]">{{ relatedKind }}</p>
-            <h2 class="truncate font-semibold">{{ relatedTitle }}</h2>
-            <p class="text-sm text-[var(--zt-muted)]">{{ relatedVideos.length }}{{ relatedData.data.value?.nextPage != null ? '+' : '' }} videos</p>
+          <div class="flex items-center justify-between gap-2 border-b border-[var(--zt-border)] px-3 py-2.5">
+            <div class="min-w-0">
+              <p class="text-xs font-semibold text-[var(--zt-muted)]">{{ relatedKind }}</p>
+              <h2 class="break-words font-semibold">{{ relatedTitle }}</h2>
+            </div>
+            <span class="zt-meta-pill shrink-0 tabular-nums" data-tone="muted">{{ relatedVideos.length }}{{ relatedData.data.value?.nextPage != null ? '+' : '' }} videos</span>
           </div>
           <div class="zt-watch-related__list">
             <NuxtLink
               v-for="(video, index) in relatedVideos"
               :key="video.videoId"
               :to="watchLocation(video.videoId)"
-              class="flex min-h-24 gap-3 border-b border-[var(--zt-border)] p-3 transition hover:bg-[var(--zt-hover)] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zt-blue)]"
-              :class="{ 'bg-[var(--zt-blue-soft)]': video.videoId === videoId }"
+              class="zt-related-link flex min-h-16 min-w-0 items-center gap-2 rounded-lg p-2"
               :aria-current="video.videoId === videoId ? 'true' : undefined"
             >
-              <span class="w-5 shrink-0 text-center text-sm text-[var(--zt-muted)]">{{ Number(index) + 1 }}</span>
+              <span class="w-4 shrink-0 text-center text-xs tabular-nums text-[var(--zt-muted)]">
+                <UIcon v-if="video.videoId === videoId" name="i-heroicons-play-solid" class="size-3.5 text-[var(--zt-blue)]" aria-hidden="true" />
+                <template v-else>{{ index + 1 }}</template>
+              </span>
               <div class="relative shrink-0">
-                <MediaArtwork :src="video.videoThumbnail" :title="video.videoTitle" compact class="h-16 w-28 rounded-lg lg:h-14 lg:w-24" />
-                <span v-if="video.duration" class="absolute bottom-0.5 right-0.5 rounded bg-black/80 px-1 text-xs text-white">
-                  {{ formatDuration(video.duration) }}
-                </span>
+                <MediaArtwork :src="video.videoThumbnail" :title="video.videoTitle" compact class="aspect-video w-20 rounded-md sm:w-24" />
+                <span v-if="video.duration" class="zt-duration">{{ formatDuration(video.duration) }}</span>
               </div>
               <div class="min-w-0 flex-1">
-                <p class="text-sm line-clamp-2">{{ video.videoTitle }}</p>
+                <p class="line-clamp-2 break-words text-sm font-medium leading-tight">{{ video.videoTitle }}</p>
                 <p class="mt-1 truncate text-xs text-[var(--zt-muted)]">{{ video.season || video.channelTitle }}</p>
               </div>
             </NuxtLink>

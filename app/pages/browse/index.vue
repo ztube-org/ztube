@@ -92,13 +92,15 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(debounce) })
     <h1 class="sr-only">YouTube</h1>
     <header class="zt-library-toolbar">
       <LibraryNav />
-      <div class="flex min-w-0 gap-2 sm:w-80"><UInput v-model="contentSearch" icon="i-heroicons-magnifying-glass" placeholder="Search your library" aria-label="Search your videos, channels, or tags" class="min-w-0 flex-1" /><UButton v-if="searching" color="neutral" variant="soft" @click="contentSearch = ''; selectedTag = ''">Clear</UButton></div>
+      <div class="flex min-w-0 gap-2 sm:w-80"><UInput :ui="{ base: 'min-h-11' }" v-model="contentSearch" icon="i-heroicons-magnifying-glass" placeholder="Search your library" aria-label="Search your videos, channels, or tags" class="min-w-0 flex-1" /><UButton v-if="searching" color="neutral" variant="soft" @click="contentSearch = ''; selectedTag = ''">Clear</UButton></div>
     </header>
     <ViewingStatus :status="status || data" :error="statusError" :refreshing="refreshing" class="mb-5" @refresh="refreshStatus" />
-    <div v-if="allTags.length" class="mb-4 flex items-center gap-2 overflow-x-auto" aria-label="Content tags">
-      <span class="shrink-0 text-xs text-[var(--zt-muted)]">Topics</span>
-      <UButton :variant="selectedTag ? 'ghost' : 'soft'" color="neutral" class="shrink-0 min-h-11" @click="selectedTag = ''">All</UButton>
-      <UButton v-for="tag in allTags" :key="tag" :variant="selectedTag === tag ? 'soft' : 'ghost'" color="neutral" class="shrink-0 min-h-11" @click="selectedTag = tag">{{ tag }}</UButton>
+    <div v-if="allTags.length" class="mb-4 flex min-w-0 items-center gap-3">
+      <span id="browse-topics" class="shrink-0 text-sm font-semibold">Topics</span>
+      <div class="zt-pill-strip" role="group" aria-labelledby="browse-topics">
+        <button type="button" class="zt-filter-pill" :aria-pressed="!selectedTag" @click="selectedTag = ''">All</button>
+        <button v-for="tag in allTags" :key="tag" type="button" class="zt-filter-pill" :aria-pressed="selectedTag === tag" @click="selectedTag = tag">{{ tag }}</button>
+      </div>
     </div>
     <div v-if="loadError" role="alert" class="mb-4 flex items-center gap-3"><span>{{ loadError }}</span><UButton variant="soft" @click="refresh">Retry</UButton></div>
     <p v-if="favoriteError" role="alert" class="mb-3 text-sm text-[var(--zt-error)]">{{ favoriteError }}</p>
@@ -109,8 +111,12 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(debounce) })
         <h2 class="zt-section-title">Continue Watching</h2>
         <div class="zt-video-shelf"><VideoCard v-for="video in continuation" :key="video.videoId" :video="video" :to="`/watch?v=${video.videoId}`" :unavailable="unavailable(video)" /></div>
       </section>
-      <section v-if="recommendations.length" class="mb-6 rounded-xl bg-[var(--zt-blue-soft)] p-3">
-        <div class="mb-3 flex items-center gap-2"><h2 class="text-lg font-bold">New for You</h2><UBadge color="primary">{{ recommendations.length }} new</UBadge></div>
+      <section v-if="recommendations.length" class="zt-spotlight mb-6 p-3 sm:p-4">
+        <div class="mb-3 flex items-center gap-2">
+          <UIcon name="i-heroicons-sparkles" class="size-5 text-[var(--zt-blue)]" aria-hidden="true" />
+          <h2 class="text-lg font-bold">New for You</h2>
+          <span class="zt-meta-pill" data-tone="accent">{{ recommendations.length }} new</span>
+        </div>
         <div class="zt-video-shelf"><VideoCard v-for="video in recommendations" :key="video.videoId" :video="video" :to="`/watch?v=${video.videoId}`" :unavailable="unavailable(video)" is-new /></div>
       </section>
       <section v-if="favorites.length" id="favorites" class="mb-6 scroll-mt-16">

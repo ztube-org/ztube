@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
+import type { TimePoolStatus } from '../../src/domain'
 
 const pageErrors = new WeakMap<Page, string[]>()
 test.beforeEach(({ page }) => { const errors: string[] = []; pageErrors.set(page, errors); page.on('pageerror', error => errors.push(error.message)) })
@@ -7,8 +8,8 @@ test.afterEach(({ page }) => { expect(pageErrors.get(page)).toEqual([]) })
 const video = (i: number) => ({ videoId: `video-${i}`, videoTitle: i === 59 ? 'Deep ocean discovery' : `Science experiment ${i}`, videoThumbnail: '/fixture-thumbnail.svg', duration: 600, channelTitle: 'Science', publishedAt: null, contentRule: 'restricted', isAvailable: true, positionSeconds: 100, tags: ['Science'] })
 const videos = Array.from({ length: 60 }, (_, i) => video(i))
 async function fixture(page: Page) {
-  const state = { sessionCalls: 0, remainingSeconds: 1800, failBrowse: false, failFavorite: false, failSource: false, emptySearchPage: false, blocked: false, favorites: ['video-0'], heartbeats: [] as Array<{ state: string; positionSeconds: number }>, breakUntil: null as string | null }
-  const watchTime = { restricted: { remainingSeconds: 1800, locked: false }, exempt: { remainingSeconds: 3600, locked: false } }
+  const state = { pools: undefined as TimePoolStatus[] | undefined, sessionCalls: 0, remainingSeconds: 1800, failBrowse: false, failFavorite: false, failSource: false, emptySearchPage: false, blocked: false, favorites: ['video-0'], heartbeats: [] as Array<{ state: string; positionSeconds: number }>, breakUntil: null as string | null }
+  const watchTime = { restricted: { remainingSeconds: 1800, locked: false }, exempt: { remainingSeconds: 3600, locked: false }, get pools() { return state.pools } }
   const policy = () => ({ blocked: state.blocked, reason: state.blocked ? 'required-break' : null, breakUntil: state.breakUntil })
   const source = { id: 1, title: 'Science', thumbnail: '/fixture-thumbnail.svg', tags: ['Science'], contentRule: 'restricted', isAvailable: true }
   await page.route('**/api/**', async route => {
@@ -67,6 +68,13 @@ test('iPad rotation enlarges the player and related videos can be expanded and p
   await expect(page.getByRole('complementary').getByText('Deep ocean discovery')).toBeVisible()
   await page.getByText('Description', { exact: true }).click()
   await expect(page.getByText(/The last chapter/)).toBeVisible()
+  await page.getByRole('button', { name: 'Hide channel videos' }).click()
+  await page.setViewportSize({ width: 1180, height: 820 })
+  const sidebar = page.getByRole('complementary', { name: 'Channel videos' })
+  await expect(sidebar).toBeVisible()
+  await expect(sidebar.locator('a[aria-current="true"]')).toContainText('Science experiment 0')
+  await expect(page.getByRole('button', { name: 'Show channel videos' })).toBeHidden()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
 
 test('the watch header shows a low balance and YouTube playlists offer Next video', async ({ page }) => {
@@ -107,6 +115,33 @@ test('home prioritizes Continue Watching, keeps recommendations in one row, and 
   await page.getByRole('button', { name: 'Account menu' }).click()
   await page.getByRole('menuitem', { name: 'Switch to dark mode' }).click()
   await expect(page.locator('html')).toHaveClass(/dark/)
+})
+
+test('Time Pool pills keep three balances in one row with accurate meters at both iPad sizes', async ({ page }) => {
+  const state = await fixture(page)
+  const pool = (id: string, name: string, remainingSeconds: number, extensionMinutes = 0): TimePoolStatus => ({
+    id, name, remainingSeconds, extensionMinutes, locked: remainingSeconds === 0, allowanceMinutes: 30,
+    usedSeconds: 1800 + extensionMinutes * 60 - remainingSeconds, weekdayMinutes: 30, weekendMinutes: 30,
+    requiresClaim: false, legacyKey: null, unlocked: false,
+  })
+  state.pools = [pool('general', 'General videos', 1980, 15), pool('cartoons', 'Cartoons', 300), pool('learning', 'Learning', 0)]
+  await page.goto('/browse')
+  const strip = page.getByRole('region', { name: 'Viewing time' })
+  for (const size of [{ width: 820, height: 1180 }, { width: 1180, height: 820 }]) {
+    await page.setViewportSize(size)
+    await expect(strip).toContainText('33 min General videos left')
+    await expect(strip.locator('meter').first()).toHaveAttribute('max', '2700')
+    await expect(strip.locator('meter').first()).toHaveAttribute('value', '1980')
+    await expect(strip.locator('[data-tone="warning"]')).toContainText('5 min Cartoons left')
+    await expect(strip.locator('[data-tone="muted"]')).toContainText('0 min Learning left')
+    expect(await strip.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
+  const searchField = page.getByRole('textbox', { name: 'Search your videos, channels, or tags' })
+  expect((await searchField.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  const topic = page.getByRole('group', { name: 'Topics' }).getByRole('button', { name: 'Science' })
+  await topic.tap()
+  await expect(topic).toHaveAttribute('aria-pressed', 'true')
 })
 
 test('browse distinguishes failed loading, successful retry, and empty search results', async ({ page }) => {

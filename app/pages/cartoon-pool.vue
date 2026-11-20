@@ -4,6 +4,7 @@ import { apiFetch } from '../../src/api'
 import type { BrowseResponse, CartoonPoolResponse } from '../../src/domain'
 import LibraryNav from '../components/LibraryNav.vue'
 import MediaArtwork from '../components/MediaArtwork.vue'
+import TimePoolPill from '../components/TimePoolPill.vue'
 import VideoCard from '../components/VideoCard.vue'
 
 const data = ref<CartoonPoolResponse | null>(null)
@@ -57,11 +58,16 @@ const watchLocation = (videoId: string) => ({ path: '/watch', query: { v: videoI
 
 <template>
   <div class="zt-page">
-    <h1 class="sr-only">Jellyfin</h1><header class="zt-library-toolbar"><LibraryNav /><UInput v-model="query" aria-label="Search Cartoon Pool" placeholder="Find a series or episode" icon="i-heroicons-magnifying-glass" class="w-full sm:w-80" /></header>
-    <div class="zt-library-note tabular-nums" v-if="data" role="status">
-      <span class="font-semibold text-[var(--zt-text)]">{{ data.remaining }} of {{ data.totalCredits ?? data.dailyLimit }} unlock credits left today</span>
-      <span v-for="pool in data.timePools" :key="pool.id">{{ Math.ceil(pool.remainingSeconds / 60) }} min {{ pool.name }} left</span>
-      <span v-if="!data.timePools && data.cartoonTime">{{ Math.ceil(data.cartoonTime.remainingSeconds / 60) }} min left</span>
+    <h1 class="sr-only">Jellyfin</h1><header class="zt-library-toolbar"><LibraryNav /><UInput :ui="{ base: 'min-h-11' }" v-model="query" aria-label="Search Cartoon Pool" placeholder="Find a series or episode" icon="i-heroicons-magnifying-glass" class="w-full sm:w-80" /></header>
+    <div v-if="data" class="zt-pill-strip my-2" role="region" aria-label="Cartoon Pool balances" tabindex="0">
+      <div class="flex shrink-0 items-center gap-2" role="status">
+        <span class="zt-viewing-pill" :data-tone="data.remaining ? 'accent' : 'muted'">
+          <UIcon name="i-heroicons-ticket" class="size-4 shrink-0" aria-hidden="true" />
+          <span class="whitespace-nowrap">{{ data.remaining }} of {{ data.totalCredits ?? data.dailyLimit }} unlock credits left today</span>
+        </span>
+        <TimePoolPill v-for="pool in data.timePools" :key="pool.id" :pool="pool" />
+        <TimePoolPill v-if="!data.timePools && data.cartoonTime" :pool="{ ...data.cartoonTime, name: undefined }" />
+      </div>
     </div>
 
     <div v-if="error" class="mb-3 flex items-center gap-3" role="alert"><span>{{ error }}</span><UButton variant="soft" @click="load()">Retry</UButton></div>
@@ -71,7 +77,10 @@ const watchLocation = (videoId: string) => ({ path: '/watch', query: { v: videoI
         <VideoCard v-for="video in continuation" :key="video.videoId" :video="video" :to="watchLocation(video.videoId)" />
       </div>
     </section>
-    <div class="mb-4 flex gap-2" aria-label="Jellyfin collection"><UButton :variant="showUnlocked ? 'ghost' : 'soft'" @click="showUnlocked = false">Series</UButton><UButton :variant="showUnlocked ? 'soft' : 'ghost'" @click="showUnlocked = true">Unlocked</UButton></div>
+    <div class="zt-segmented mb-4" role="group" aria-label="Jellyfin collection">
+      <button type="button" :aria-pressed="!showUnlocked" @click="showUnlocked = false">Series</button>
+      <button type="button" :aria-pressed="showUnlocked" @click="showUnlocked = true">Unlocked</button>
+    </div>
     <section v-if="filteredSeries.length && !showUnlocked" class="mb-6" aria-label="Cartoon series">
       <h2 class="zt-section-title">Choose a series</h2>
       <div class="zt-jellyfin-grid">
@@ -79,8 +88,14 @@ const watchLocation = (videoId: string) => ({ path: '/watch', query: { v: videoI
           <div class="zt-video-card__media"><MediaArtwork :src="item.playlistThumbnail" :title="item.playlistTitle" kind="playlist" /><span class="zt-duration">View episodes</span></div>
           <h3 class="mt-2 line-clamp-2 font-semibold leading-5" :title="item.playlistTitle">{{ item.playlistTitle }}</h3>
           <template v-for="hint in (library?.seriesNavigation ?? []).filter(hint => hint.playlistId === item.id)" :key="hint.playlistId">
-            <p class="mt-1 truncate text-xs text-[var(--zt-muted)]" :title="`Last unlocked: ${hint.previousTitle}`">Last unlocked: {{ hint.previousTitle }}</p>
-            <p class="mt-1 line-clamp-2 text-xs text-[var(--zt-blue)]" :title="hint.nextTitle ? `Next: ${hint.nextTitle}` : undefined">{{ hint.nextTitle ? `Next: ${hint.nextTitle}` : 'Last available episode reached' }}</p>
+            <p class="zt-meta-pill mt-1.5" data-tone="muted">
+              <UIcon name="i-heroicons-lock-open" class="size-3.5 shrink-0" aria-hidden="true" />
+              <span class="line-clamp-2">{{ `Last unlocked: ${hint.previousTitle}` }}</span>
+            </p>
+            <p class="zt-meta-pill mt-1" data-tone="accent">
+              <UIcon name="i-heroicons-arrow-right" class="size-3.5 shrink-0" aria-hidden="true" />
+              <span class="line-clamp-2">{{ hint.nextTitle ? `Next: ${hint.nextTitle}` : 'Last available episode reached' }}</span>
+            </p>
           </template>
         </NuxtLink>
       </div>
@@ -94,7 +109,7 @@ const watchLocation = (videoId: string) => ({ path: '/watch', query: { v: videoI
       <div v-if="resultsCurrent" class="zt-jellyfin-grid">
         <div v-for="video in visibleEpisodes" :key="video.videoId">
           <VideoCard :video="video" :to="watchLocation(video.videoId)" />
-          <p class="mt-1 text-xs text-[var(--zt-muted)]">{{ data.unlockedVideoIds?.includes(video.videoId) ? 'Unlocked · No credit needed' : data.remaining ? 'Unlock with 1 credit' : 'More credits tomorrow' }}</p>
+          <p class="zt-meta-pill mt-1" :data-tone="data.unlockedVideoIds?.includes(video.videoId) ? 'accent' : 'muted'">{{ data.unlockedVideoIds?.includes(video.videoId) ? 'Unlocked · No credit needed' : data.remaining ? 'Unlock with 1 credit' : 'More credits tomorrow' }}</p>
         </div>
       </div>
       <UButton v-if="resultsCurrent && data.nextPage !== null" class="mt-4 min-h-11" variant="soft" :loading="loading" @click="load(true)">Load more episodes</UButton>
