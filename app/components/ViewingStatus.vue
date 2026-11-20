@@ -22,7 +22,7 @@ const message = computed(() => {
 </script>
 
 <template>
-  <div class="zt-status-bar flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-[var(--zt-border)] py-1 text-sm">
+  <div class="zt-status-bar flex tabular-nums flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-[var(--zt-border)] py-1 text-sm">
     <div v-if="error" role="alert">{{ error }}</div>
     <div v-else-if="status" class="flex flex-wrap gap-x-4 gap-y-1">
       <span v-if="message" class="font-medium">{{ message }}</span>

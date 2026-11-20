@@ -15,7 +15,10 @@ test('declares an installable standalone iPad web app with adaptive color scheme
   assert.match(html, /rel="apple-touch-icon" href="\/apple-touch-icon\.png\?v=2"/)
   assert.match(viteConfig, /ui\(\{\s*colorMode:\s*false\s*\}\)/)
   assert.equal(manifest.display, 'standalone')
-  assert.equal(manifest.background_color, '#f3f0e8')
+  const themeColor = html.match(/name="theme-color" content="(#[a-f0-9]+)"/)?.[1]
+  assert.ok(themeColor)
+  assert.equal(manifest.theme_color, themeColor)
+  assert.equal(manifest.background_color, themeColor)
   assert.ok(manifest.icons.every((icon: { src: string }) => icon.src.endsWith('?v=2')))
 })
 
@@ -28,8 +31,11 @@ test('standalone topbars reserve the iPad status-bar safe area', async () => {
 
   assert.match(shell, /<header class="zt-app-header/)
   assert.match(watch, /<header class="zt-app-header[^"\n]*\bmin-h-14\b/)
-  assert.match(styles, /\.zt-app-header\s*\{[^}]*padding-block-start:\s*env\(safe-area-inset-top\);/s)
-  assert.match(styles, /\.zt-watch-related\s*\{[^}]*top:\s*calc\(4\.5rem \+ env\(safe-area-inset-top\)\);/s)
+  assert.match(styles, /\.zt-app-header\s*\{[^}]*padding-block-start:\s*env\(safe-area-inset-top,\s*0px\);/s)
+  assert.match(styles, /padding-inline-start:[^;]*env\(safe-area-inset-left,\s*0px\)/)
+  assert.match(styles, /padding-inline-end:[^;]*env\(safe-area-inset-right,\s*0px\)/)
+  assert.match(styles, /padding-block-end:[^;]*env\(safe-area-inset-bottom,\s*0px\)/)
+  assert.match(styles, /\.zt-watch-related\s*\{[^}]*top:\s*calc\(4\.5rem \+ env\(safe-area-inset-top,\s*0px\)\);/s)
 })
 
 test('the iPad home-screen icon contains a horizontal brand mark', async () => {

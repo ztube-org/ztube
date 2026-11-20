@@ -104,8 +104,8 @@ async function loadMoreRelated() {
         <UButton v-if="claimPrompt?.remaining" class="min-h-11" :loading="claimPending" @click="confirmClaim">Unlock episode</UButton>
       </template>
     </UModal>
-    <header class="zt-app-header sticky top-0 z-40 flex min-h-14 items-center justify-between gap-1 border-b px-3 backdrop-blur sm:px-5">
-      <NuxtLink :to="backTarget" class="zt-icon-link flex min-h-11 items-center gap-2 rounded-full px-3 text-sm font-medium">
+    <header class="zt-app-header zt-watch-header sticky top-0 z-40 flex min-h-14 items-center justify-between gap-1 border-b backdrop-blur">
+      <NuxtLink :to="backTarget" class="zt-icon-link flex min-h-11 min-w-11 items-center gap-2 rounded-full px-3 text-sm font-medium">
         <UIcon name="i-heroicons-arrow-left" class="h-5 w-5" />
         Back
       </NuxtLink>

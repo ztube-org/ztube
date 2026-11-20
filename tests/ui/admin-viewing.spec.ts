@@ -103,6 +103,7 @@ test('Admin edits independent time pools, binds content and saves daily unlock c
   await tagDialog.getByRole('button', { name: 'Save tags' }).click()
   await expect(tagDialog).toBeHidden()
   expect(tags).toEqual(['Science', 'Space'])
+  await expect(page.locator('.zt-toast-viewport').getByText('Tags saved.', { exact: true })).toBeVisible()
   await page.getByLabel('Time pool for Weekend stories').click()
   await page.getByRole('option', { name: 'Learning', exact: true }).click()
   await expect(page.getByLabel('Time pool for Weekend stories')).toContainText('Learning')
@@ -199,6 +200,12 @@ test('Admin dashboard pauses a Child and grants minutes to one Time Pool', async
     await route.fulfill({ json: {} })
   })
   await page.goto('/admin')
+  const header = page.getByRole('banner')
+  const navigation = header.getByRole('navigation', { name: 'Administration' })
+  await expect(page.getByRole('navigation', { name: 'Administration' })).toHaveCount(1)
+  await expect(navigation.getByRole('link', { name: 'Children' })).toHaveAttribute('aria-current', 'page')
+  await expect(navigation.getByRole('link', { name: 'Jellyfin' })).toHaveAttribute('href', '/admin/jellyfin')
+  await expect(navigation.getByRole('link', { name: 'Open viewer' })).toHaveAttribute('href', '/browse')
   const card = page.getByRole('article', { name: 'Explorer' })
   await expect(card).toContainText('Watching · Space science')
   await expect(card).toContainText('2 min left')
@@ -211,4 +218,48 @@ test('Admin dashboard pauses a Child and grants minutes to one Time Pool', async
   await card.getByRole('button', { name: 'Resume today' }).click()
   await expect(card).toContainText('Ready to watch')
   await expect(page.getByRole('status')).toContainText('Explorer’s viewing resumed.')
+  const toast = page.locator('.zt-toast-viewport').getByText('Explorer’s viewing resumed.', { exact: true })
+  await expect(toast).toBeVisible()
+})
+
+test('the Child switcher stays beside Preview with one Admin navigation bar on iPad', async ({ page }) => {
+  const children = [
+    { id: 1, email: 'explorer@example.com', displayName: 'Explorer', role: 'admin' },
+    { id: 2, email: 'scout@example.com', displayName: 'Scout', role: 'non-admin' },
+  ]
+  await page.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname
+    let json: unknown = {}
+    if (path === '/api/auth/session') json = { user: children[0] }
+    else if (path === '/api/admin/children') json = { children }
+    else if (path.endsWith('/content')) json = { child: children.find(child => path.includes(`/${child.id}/`)), channels: [], playlists: [], videos: [] }
+    else if (path.endsWith('/time-pools')) json = { pools: [], bindings: [] }
+    else if (path.endsWith('/usage')) json = { days: [] }
+    else if (path.endsWith('/viewing-events')) json = { events: [] }
+    await route.fulfill({ json })
+  })
+  await page.goto('/admin/child/1/manage')
+  const navigation = page.getByRole('banner').getByRole('navigation', { name: 'Administration' })
+  const childSwitch = page.getByRole('combobox', { name: 'Switch Child' })
+  const preview = page.getByRole('link', { name: 'Preview viewer' })
+  for (const size of [{ width: 820, height: 1180 }, { width: 1180, height: 820 }]) {
+    await page.setViewportSize(size)
+    await expect(childSwitch).toContainText('Explorer')
+    const [nav, child, action] = await Promise.all([navigation.boundingBox(), childSwitch.boundingBox(), preview.boundingBox()])
+    expect(nav!.height).toBeLessThanOrEqual(56)
+    for (const link of await navigation.getByRole('link').all()) {
+      const target = (await link.boundingBox())!
+      expect(target.height).toBeGreaterThanOrEqual(44)
+      expect(target.width).toBeGreaterThanOrEqual(44)
+    }
+    expect(child!.height).toBeGreaterThanOrEqual(44)
+    expect(action!.y).toBeCloseTo(child!.y, 0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
+  await childSwitch.click()
+  await page.getByRole('option', { name: 'Scout', exact: true }).click()
+  await expect(page).toHaveURL(/\/admin\/child\/2\/manage$/)
+  await expect(childSwitch).toContainText('Scout')
+  await expect(preview).toHaveAttribute('href', '/admin/child/2/preview')
+  await expect(page.getByRole('navigation', { name: 'Administration' })).toHaveCount(1)
 })

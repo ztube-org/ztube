@@ -1,17 +1,19 @@
 <script setup lang="ts">
+import { useActionToast } from '../../../../composables/use-action-toast'
 import { computed, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { apiFetch, useApi } from '../../../../../src/api'
 import DailyUsageChart from '../../../../components/DailyUsageChart.vue'
 import ViewingEvents from '../../../../components/ViewingEvents.vue'
 import TimePoolManager from '../../../../components/TimePoolManager.vue'
-import type { TimePoolsResponse, TimePoolBinding } from '../../../../../src/domain'
+import type { AdminChild, TimePoolsResponse, TimePoolBinding } from '../../../../../src/domain'
 import ActionConfirm, { type Confirmation } from '../../../../components/ActionConfirm.vue'
-import AdminNav from '../../../../components/AdminNav.vue'
 import CartoonPoolSettings from '../../../../components/CartoonPoolSettings.vue'
 import { useAdminViewing } from '../../../../composables/use-admin-viewing'
 
 const route = useRoute()
+const router = useRouter()
+const notify = useActionToast()
 const childId = parseInt(route.params.id as string)
 type ContentKind = 'channel' | 'playlist' | 'video'
 const confirmation = ref<Confirmation | null>(null)
@@ -20,7 +22,16 @@ const copyError = ref('')
 const copyNotice = ref('')
 
 const { data, refresh } = useApi<any>(`/api/admin/children/${childId}/content`)
-const { data: childrenData } = useApi<any>('/api/admin/children')
+const { data: childrenData } = useApi<{ children: AdminChild[] }>('/api/admin/children')
+const childOptions = computed(() => (childrenData.value?.children ?? []).map(child => ({
+  label: child.id === childId && data.value?.child
+    ? data.value.child.displayName || data.value.child.email
+    : child.displayName || child.email,
+  value: child.id,
+})))
+function switchChild(id: number) {
+  if (id !== childId) void router.push(`/admin/child/${id}/manage`)
+}
 const {
   timeData, watchTime, usageDays, usage, usageError, usageLoading, refreshUsage, detectedTimeZone, timeForm, timeSaving, timeError, timeSaved,
   clockOptions, endClockOptions, breakAfterOptions, breakDurationOptions, timeZoneOptions,
@@ -36,23 +47,25 @@ function boundPool(kind: TimePoolBinding['kind'], contentId: string, legacyKey =
 }
 const profileForm = reactive({ displayName: '', avatarUrl: '' })
 const profileSaving = ref(false)
+const profileError = ref('')
 watch(() => data.value?.child, child => {
   if (child) Object.assign(profileForm, { displayName: child.displayName || '', avatarUrl: child.avatarUrl || '' })
 }, { immediate: true })
 
 async function saveProfile() {
   profileSaving.value = true
+  profileError.value = ''
   try {
     await apiFetch(`/api/admin/children/${childId}/profile`, { method: 'PUT', body: profileForm })
     await refresh()
-  } finally { profileSaving.value = false }
+    notify('Child profile saved.')
+  } catch (cause) { profileError.value = cause instanceof Error ? cause.message : 'Unable to save Child profile' }
+  finally { profileSaving.value = false }
 }
 
 const copySourceChildId = ref<number | undefined>()
 const copying = ref(false)
-const copyOptions = computed(() => (childrenData.value?.children ?? [])
-  .filter((child: any) => child.id !== childId)
-  .map((child: any) => ({ label: child.displayName || child.email, value: child.id })))
+const copyOptions = computed(() => childOptions.value.filter(child => child.value !== childId))
 function requestCopyContent() {
   const sourceChildId = copySourceChildId.value
   const source = copyOptions.value.find((option: { value: number }) => option.value === sourceChildId)
@@ -71,6 +84,7 @@ async function copyContent(sourceChildId: number) {
     await apiFetch(`/api/admin/children/${childId}/content/copy`, { method: 'POST', body: { sourceChildId } })
     await refresh()
     copyNotice.value = 'Approved Content copied.'
+    notify(copyNotice.value, { announcedInline: true })
   } catch (cause) { copyError.value = cause instanceof Error ? cause.message : 'Unable to copy Approved Content' }
   finally { copying.value = false }
 }
@@ -153,6 +167,7 @@ const tagTarget = ref<{ id: number; type: ContentKind; title: string } | null>(n
 const selectedTags = ref<string[]>([])
 const newTag = ref('')
 const tagError = ref('')
+let tagsSaved = false
 const tagsSaving = ref(false)
 let tagTrigger: HTMLElement | null = null
 const tagOptions = computed(() => {
@@ -166,6 +181,7 @@ function openTags(item: { id: number; tags?: string[] }, type: ContentKind, titl
   selectedTags.value = [...new Set(item.tags ?? [])]
   newTag.value = ''
   tagError.value = ''
+  tagsSaved = false
   tagsOpen.value = true
 }
 function restoreTagFocus(event: Event) {
@@ -197,9 +213,15 @@ async function saveTags() {
   try {
     await apiFetch(`/api/admin/children/${childId}/content/${target.type}/${target.id}/tags`, { method: 'PUT', body: { tags: selectedTags.value } })
     await refresh()
+    tagsSaved = true
     tagsOpen.value = false
   } catch (cause) { tagError.value = cause instanceof Error ? cause.message : 'Unable to save tags' }
   finally { tagsSaving.value = false }
+}
+
+function announceSavedTags() {
+  if (tagsSaved) notify('Tags saved.')
+  tagsSaved = false
 }
 
 async function syncContent(item: any, type: 'channel' | 'playlist' | 'video') {
@@ -263,7 +285,7 @@ function formatPublishedDate(value: string | null): string {
 <template>
   <div class="zt-page">
     <ActionConfirm v-model="confirmation" />
-    <UModal v-model:open="tagsOpen" title="Edit tags" :description="tagTarget?.title" :close="false" :dismissible="!tagsSaving"
+    <UModal v-model:open="tagsOpen" title="Edit tags" :description="tagTarget?.title" :close="false" :dismissible="!tagsSaving" @after:leave="announceSavedTags"
       :content="{ onCloseAutoFocus: restoreTagFocus }" :ui="{ content: 'max-w-lg', body: 'space-y-3 p-3 sm:p-4', footer: 'justify-end gap-2 p-3 sm:p-4' }">
       <template #body>
         <div v-if="tagOptions.length" class="flex max-h-44 flex-wrap items-start gap-1.5 overflow-y-auto p-1" role="group" aria-label="Library tags">
@@ -280,24 +302,23 @@ function formatPublishedDate(value: string | null): string {
           </div>
           <p id="tag-limit" class="text-xs text-[var(--zt-muted)]">{{ selectedTags.length }} of 8 selected · 24 characters per tag</p>
         </form>
-        <p v-if="tagError" role="alert" class="rounded-lg border border-error/40 p-2 text-sm text-[var(--zt-error)]">{{ tagError }}</p>
+        <p v-if="tagError" role="alert" class="rounded-lg border border-error/40 bg-[var(--zt-error-soft)] p-2 text-sm text-[var(--zt-error)]">{{ tagError }}</p>
       </template>
       <template #footer>
         <UButton color="neutral" variant="soft" class="min-h-11 min-w-11" :disabled="tagsSaving" @click="tagsOpen = false">Cancel</UButton>
         <UButton class="min-h-11 min-w-11" :loading="tagsSaving" @click="saveTags">Save tags</UButton>
       </template>
     </UModal>
-    <AdminNav />
-    <div class="mb-5 flex items-center gap-3 border-b border-[var(--zt-border)] pb-4">
-      <NuxtLink to="/admin" class="flex min-h-11 min-w-11 items-center justify-center rounded-full text-[var(--zt-text)] hover:bg-[var(--zt-hover)]" aria-label="Back to accounts">
-        <UIcon name="i-heroicons-arrow-left" class="h-5 w-5" />
-      </NuxtLink>
-      <div class="min-w-0 flex-1">
-        <p class="text-sm font-medium text-[var(--zt-blue)]">Child settings</p>
-        <h1 class="truncate text-2xl font-bold tracking-tight">{{ data?.child?.displayName || data?.child?.email }}</h1>
+    <header class="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+      <h1 class="min-w-0 truncate text-xl font-semibold">
+        {{ childOptions.length > 1 ? 'Child settings' : data?.child?.displayName || data?.child?.email || 'Child settings' }}
+      </h1>
+      <div class="flex min-w-0 max-w-full items-center gap-2">
+        <USelect v-if="childOptions.length > 1" :model-value="childId" :items="childOptions" aria-label="Switch Child"
+          class="min-h-11 min-w-0 max-w-52" @update:model-value="switchChild" />
+        <UButton :to="`/admin/child/${childId}/preview`" variant="soft" class="min-h-11 shrink-0">Preview viewer</UButton>
       </div>
-      <UButton :to="`/admin/child/${childId}/preview`" variant="soft" class="min-h-11 shrink-0">Preview viewer</UButton>
-    </div>
+    </header>
 
     <div class="zt-admin-tabs" role="tablist" aria-label="Child settings">
       <button v-for="item in sections" :id="`tab-${item.id}`" :key="item.id" role="tab" :aria-selected="section === item.id" :aria-controls="`panel-${item.id}`" @click="section = item.id">{{ item.label }}</button>
@@ -316,6 +337,7 @@ function formatPublishedDate(value: string | null): string {
           <span />
           <UButton type="submit" size="sm" :loading="profileSaving" class="min-h-11 justify-self-end">Save profile</UButton>
         </form>
+        <p v-if="profileError" role="alert" class="mt-3 text-sm text-[var(--zt-error)]">{{ profileError }}</p>
       </UCard>
       <UCard class="rounded-2xl ring-1 ring-[var(--zt-border)]">
         <template #header>
@@ -325,7 +347,7 @@ function formatPublishedDate(value: string | null): string {
           <UFormField label="Copy from Child" class="flex-1"><USelect v-model="copySourceChildId" :items="copyOptions" class="min-h-11 w-full" placeholder="Select a Child" /></UFormField>
           <UButton class="min-h-11" :disabled="!copySourceChildId" :loading="copying" @click="requestCopyContent">Copy</UButton>
         </div>
-        <p v-if="copyError" role="alert" class="mt-3 rounded-lg border border-error/40 p-2 text-sm text-[var(--zt-error)]">{{ copyError }}</p>
+        <p v-if="copyError" role="alert" class="mt-3 rounded-lg border border-error/40 bg-[var(--zt-error-soft)] p-2 text-sm text-[var(--zt-error)]">{{ copyError }}</p>
         <p v-if="copyNotice" role="status" class="mt-3 text-sm">{{ copyNotice }}</p>
       </UCard>
     </div>
@@ -333,8 +355,8 @@ function formatPublishedDate(value: string | null): string {
     </section>
     <section v-show="section === 'time'" id="panel-time" role="tabpanel" aria-labelledby="tab-time">
 
-    <div v-if="watchTime" class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--zt-border)] px-3 py-2"><div><p class="font-medium">Today · {{ watchTime.viewingDay }}</p><p class="text-sm text-[var(--zt-muted)]">{{ watchTime.policy?.reason === 'viewing-pause' ? 'Viewing is paused' : 'Pause stops playback across all time pools' }}</p></div><UButton class="min-h-11" :color="watchTime.policy?.reason === 'viewing-pause' ? 'neutral' : 'warning'" :disabled="interventionSaving" @click="setViewingPause(watchTime.policy?.reason !== 'viewing-pause')">{{ watchTime.policy?.reason === 'viewing-pause' ? 'Resume viewing' : 'Pause viewing today' }}</UButton></div>
-    <p v-if="timeError" role="alert" class="mb-3 rounded-lg border border-error/40 p-2 text-sm text-[var(--zt-error)]">{{ timeError }}</p>
+    <div v-if="watchTime" class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--zt-border)] px-3 py-2"><div><p class="font-medium">Today · {{ watchTime.viewingDay }}</p><p class="text-sm text-[var(--zt-muted)]">{{ watchTime.policy?.reason === 'viewing-pause' ? 'Viewing is paused' : 'Pause stops playback across all time pools' }}</p></div><UButton class="min-h-11" variant="soft" color="neutral" :class="{ 'zt-warning-action': watchTime.policy?.reason !== 'viewing-pause' }" :disabled="interventionSaving" @click="setViewingPause(watchTime.policy?.reason !== 'viewing-pause')">{{ watchTime.policy?.reason === 'viewing-pause' ? 'Resume viewing' : 'Pause viewing today' }}</UButton></div>
+    <p v-if="timeError" role="alert" class="mb-3 rounded-lg border border-error/40 bg-[var(--zt-error-soft)] p-2 text-sm text-[var(--zt-error)]">{{ timeError }}</p>
     <TimePoolManager :child-id="childId" @loaded="poolData = $event" />
     <details class="mb-4 rounded-xl border border-[var(--zt-border)] px-3"><summary class="min-h-12 cursor-pointer content-center font-medium">Unlock credits</summary><CartoonPoolSettings :child-id="childId" :pools="poolData?.pools ?? []" :playlists="data?.playlists ?? []" /></details>
 
@@ -374,7 +396,7 @@ function formatPublishedDate(value: string | null): string {
     </section>
     <section v-show="section === 'content'" id="panel-content" role="tabpanel" aria-labelledby="tab-content">
     <div class="flex flex-wrap items-center justify-between gap-3"><div><h2 class="text-xl font-semibold">Approved content</h2><p class="text-sm text-[var(--zt-muted)]">Add YouTube links here. Manage imported series in the Jellyfin library.</p></div><UButton to="/admin/jellyfin" variant="soft">Jellyfin library</UButton></div>
-    <p v-if="contentError" role="alert" class="my-3 rounded-lg border border-error/40 p-2 text-sm text-[var(--zt-error)]">{{ contentError }}</p>
+    <p v-if="contentError" role="alert" class="my-3 rounded-lg border border-error/40 bg-[var(--zt-error-soft)] p-2 text-sm text-[var(--zt-error)]">{{ contentError }}</p>
     <section class="my-5 rounded-xl border border-[var(--zt-border)] p-3" aria-label="Child Jellyfin access">
       <h3 class="font-semibold">Jellyfin</h3><p v-if="!jellyfinPlaylists.length" class="py-2 text-sm text-[var(--zt-muted)]">No shared series. Choose this child in the Jellyfin library to grant access.</p>
       <div v-for="item in jellyfinPlaylists" :key="item.id" class="flex items-center justify-between gap-3 border-t border-[var(--zt-border)] py-2"><div class="min-w-0"><p class="font-medium">{{ item.playlistTitle }}</p><p class="text-sm text-[var(--zt-muted)]">{{ item.cartoonPool ? 'Uses the cartoon library time pool and unlock credits' : 'Approved for this child' }}</p></div><UButton color="neutral" variant="ghost" class="min-h-11" @click="requestRemoveContent(item.id, 'playlist', item.playlistTitle)">Remove access</UButton></div>

@@ -7,7 +7,7 @@ const labelEvery = computed(() => props.days.length <= 7 ? 1 : 5)
 </script>
 
 <template>
-  <div>
+  <div class="tabular-nums">
     <p class="mb-2 text-xs text-[var(--zt-muted)]">Minutes</p>
     <div class="relative ml-10 h-40 border-b border-l border-[var(--zt-border)]" role="img" aria-label="Daily watch time in minutes; exact values in daily totals below">
       <div v-for="tick in scale.ticks" :key="tick" class="pointer-events-none absolute inset-x-0 border-t border-[var(--zt-border)]" :style="{ bottom: `${tick / scale.ceiling * 100}%` }">

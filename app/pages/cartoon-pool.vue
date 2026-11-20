@@ -58,7 +58,7 @@ const watchLocation = (videoId: string) => ({ path: '/watch', query: { v: videoI
 <template>
   <div class="zt-page">
     <h1 class="sr-only">Jellyfin</h1><header class="zt-library-toolbar"><LibraryNav /><UInput v-model="query" aria-label="Search Cartoon Pool" placeholder="Find a series or episode" icon="i-heroicons-magnifying-glass" class="w-full sm:w-80" /></header>
-    <div class="zt-library-note" v-if="data" role="status">
+    <div class="zt-library-note tabular-nums" v-if="data" role="status">
       <span class="font-semibold text-[var(--zt-text)]">{{ data.remaining }} of {{ data.totalCredits ?? data.dailyLimit }} unlock credits left today</span>
       <span v-for="pool in data.timePools" :key="pool.id">{{ Math.ceil(pool.remainingSeconds / 60) }} min {{ pool.name }} left</span>
       <span v-if="!data.timePools && data.cartoonTime">{{ Math.ceil(data.cartoonTime.remainingSeconds / 60) }} min left</span>

@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { useActionToast } from '../../composables/use-action-toast'
 import { ref } from 'vue'
-import AdminNav from '../../components/AdminNav.vue'
 import { apiFetch, useApi } from '../../../src/api'
 import type { AdminChild } from '../../../src/domain'
 
 const { data, error, refresh } = useApi<{ children: AdminChild[] }>('/api/admin/children')
+const notify = useActionToast()
 const pending = ref(false)
 const actionError = ref('')
 const notice = ref('')
@@ -24,6 +25,7 @@ async function updateViewing(action: () => Promise<unknown>, message: string) {
   try {
     await action()
     notice.value = message
+    notify(message, { announcedInline: true })
     await refresh().catch(() => {})
   } catch (cause) { actionError.value = cause instanceof Error ? cause.message : 'Unable to update viewing' }
   finally { pending.value = false }
@@ -63,14 +65,13 @@ function viewingStatus(child: AdminChild) {
 
 <template>
   <div class="zt-page">
-    <AdminNav />
     <header class="mb-3 flex items-center justify-between gap-2">
       <h1 class="text-2xl font-bold">Children</h1>
       <UButton class="min-h-11" variant="ghost" color="neutral" :disabled="pending" icon="i-heroicons-arrow-path"
         @click="refreshDashboard">Refresh</UButton>
     </header>
-    <p v-if="error" role="alert" class="mb-3 rounded-lg border border-error/40 p-2 text-sm text-[var(--zt-error)]">{{ error.message }}</p>
-    <p v-if="actionError" role="alert" class="mb-3 rounded-lg border border-error/40 p-2 text-sm text-[var(--zt-error)]">{{ actionError }}</p>
+    <p v-if="error" role="alert" class="mb-3 rounded-lg border border-error/40 bg-[var(--zt-error-soft)] p-2 text-sm text-[var(--zt-error)]">{{ error.message }}</p>
+    <p v-if="actionError" role="alert" class="mb-3 rounded-lg border border-error/40 bg-[var(--zt-error-soft)] p-2 text-sm text-[var(--zt-error)]">{{ actionError }}</p>
     <p v-if="notice" role="status" class="mb-3 rounded-lg border border-[var(--zt-border)] p-2 text-sm">{{ notice }}</p>
     <p v-if="!data && !error" role="status" class="text-sm text-[var(--zt-muted)]">Loading children…</p>
     <div class="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">

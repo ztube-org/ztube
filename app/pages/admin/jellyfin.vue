@@ -1,8 +1,8 @@
 <script setup lang="ts">
+import { useActionToast } from '../../composables/use-action-toast'
 import { computed, onMounted, ref } from 'vue'
 import { apiFetch } from '../../../src/api'
 import ActionConfirm, { type Confirmation } from '../../components/ActionConfirm.vue'
-import AdminNav from '../../components/AdminNav.vue'
 import MediaArtwork from '../../components/MediaArtwork.vue'
 import { formatDuration } from '../../../src/video-ui'
 
@@ -12,6 +12,7 @@ type Import = { revision: number; thumbnail?: string; id: string; title: string;
 type Approval = { playlistId: string; childId: number; cartoonPool: number }
 type Child = { id: number; displayName: string | null; email: string }
 type Scope = { name: string; type: 'libraries' | 'series' | 'seasons' | 'episodes'; parentId?: string }
+const notify = useActionToast()
 const servers = ref<Server[]>([])
 const imports = ref<Import[]>([])
 const approvals = ref<Approval[]>([])
@@ -96,6 +97,7 @@ async function importItem(connectionId: string, itemId: string) {
   await reload()
   section.value = 'imports'
   notice.value = `${result.title}: ${result.imported} episodes imported${result.skipped ? `; ${result.skipped} unsupported episodes skipped` : ''}. Choose children below to add it to their Cartoon Pool.`
+  notify(notice.value, { announcedInline: true })
 }
 async function syncAllSeries() {
   const series = [...imports.value]
@@ -105,6 +107,7 @@ async function syncAllSeries() {
     try { await syncImport(item.serverId, item.itemId) } catch { failed.push(item.title) }
   }
   notice.value = `Series sync complete. ${series.length - failed.length} succeeded, ${failed.length} failed.`
+  notify(notice.value, { announcedInline: true, color: failed.length ? 'warning' : 'success' })
   if (failed.length) notice.value += ` Failed: ${failed.join(', ')}.`
   await reload()
 }
@@ -137,7 +140,6 @@ function syncTime(epoch: number) { return new Date(epoch * 1000).toLocaleString(
 <template>
   <div class="zt-page space-y-4 jellyfin-admin">
     <ActionConfirm v-model="confirmation" />
-    <AdminNav />
     <header class="flex flex-wrap items-center justify-between gap-3"><div><h1 class="text-2xl font-bold">Jellyfin library</h1><p class="text-sm text-[var(--zt-muted)]">{{ imports.length }} imported series &amp; seasons</p></div><div class="flex flex-wrap gap-2">
       <UButton variant="soft" class="min-h-11" :disabled="busy || !imports.length" @click="act(syncAllSeries)">Sync all series</UButton>
       <UButton class="min-h-11" :disabled="busy" @click="section = 'browse'">Import series</UButton>
@@ -145,7 +147,7 @@ function syncTime(epoch: number) { return new Date(epoch * 1000).toLocaleString(
     <div class="zt-admin-tabs" role="tablist" aria-label="Jellyfin management">
       <button v-for="tab in [{ id: 'imports', label: 'Imported series' }, { id: 'browse', label: 'Browse & import' }, { id: 'connections', label: 'Connections' }]" :key="tab.id" role="tab" :aria-selected="section === tab.id" @click="section = tab.id">{{ tab.label }}</button>
     </div>
-    <p v-if="error" role="alert" class="rounded-lg border border-error/40 p-3 text-sm text-[var(--zt-error)]">{{ error }}</p>
+    <p v-if="error" role="alert" class="rounded-lg border border-error/40 bg-[var(--zt-error-soft)] p-3 text-sm text-[var(--zt-error)]">{{ error }}</p>
     <p v-if="notice" role="status" class="rounded-lg border border-[var(--zt-border)] p-3 text-sm">{{ notice }}</p>
     <div v-show="section === 'connections'" class="space-y-4">
     <div class="flex justify-end"><UButton :disabled="busy" @click="edit()">Add Jellyfin server</UButton></div>
